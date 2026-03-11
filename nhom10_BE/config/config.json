@@ -1,0 +1,28 @@
+{
+  "development": {
+    "username": "root",
+    "password": "sapassword",
+    "database": "smartCity_db",
+    "host": "127.0.0.1",
+    "dialect": "mysql",
+    "charset": "utf8mb4",
+    "collate": "utf8mb4_unicode_ci",
+    "mongodb_url": "mongodb://localhost:27017/smartcity_chat"
+  },
+  "test": {
+    "username": "root",
+    "password": null,
+    "database": "database_test",
+    "host": "127.0.0.1",
+    "dialect": "mysql",
+    "mongodb_url": "mongodb://localhost:27017/smartcity_chat_test"
+  },
+  "production": {
+    "username": "root",
+    "password": "sapassword",
+    "database": "smartCity_db",
+    "host": "127.0.0.1",
+    "dialect": "mysql",
+    "mongodb_url": "mongodb://your_production_mongo_uri"
+  }
+}

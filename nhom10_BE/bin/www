@@ -1,0 +1,133 @@
+#!/usr/bin/env node
+require('dotenv').config();
+// ... các dòng require khác bên dưới
+/**
+ * Module dependencies.
+ */
+var app = require('../src/app');
+var debug = require('debug')('nhom10-be:server');
+var http = require('http');
+
+// Nhúng thêm các thư viện cần thiết cho dự án
+const { Server } = require('socket.io');
+const mongoose = require('mongoose');
+const db = require('../models'); // Thư mục models của Sequelize (MySQL)
+const socketUtil = require('../src/shared/utils/socket'); // Đường dẫn tới file socket.js
+
+/**
+ * Get port from environment and store in Express.
+ */
+var port = normalizePort(process.env.PORT || '3000');
+app.set('port', port);
+
+/**
+ * Create HTTP server.
+ */
+var server = http.createServer(app);
+
+// Khởi tạo Socket.io
+socketUtil.init(server);
+
+// ==========================================
+// 1. KẾT NỐI DATABASE (MySQL & MongoDB)
+// ==========================================
+
+// Kết nối MongoDB (Lưu trữ lịch sử tin nhắn)
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/smartcity_chat';
+mongoose.connect(MONGO_URI)
+    .then(() => console.log('✅ Đã kết nối MongoDB thành công!'))
+    .catch(err => console.error('❌ Lỗi kết nối MongoDB:', err));
+
+// Kết nối MySQL (Quản lý User, Nhóm, Phản ánh)
+db.sequelize.authenticate()
+    .then(() => console.log('✅ Đã kết nối MySQL thành công!'))
+    .catch(err => console.error('❌ Lỗi kết nối MySQL:', err));
+
+// ==========================================
+// 2. KHỞI TẠO SOCKET.IO (Chat thời gian thực)
+// ==========================================
+const io = new Server(server, {
+  cors: {
+    origin: "*", // Cho phép App React Native kết nối
+    methods: ["GET", "POST"]
+  }
+});
+
+// Lắng nghe các sự kiện kết nối từ Client
+io.on('connection', (socket) => {
+  console.log(`🔌 Người dùng vừa kết nối Socket. ID: ${socket.id}`);
+
+  // Khi người dùng ngắt kết nối (tắt app)
+  socket.on('disconnect', () => {
+    console.log(`🔌 Người dùng ngắt kết nối. ID: ${socket.id}`);
+  });
+});
+
+// Lưu biến `io` vào `app` để sau này các Controller có thể lấy ra dùng
+// (Ví dụ: Để gửi thông báo khi có phản ánh mới)
+app.set('io', io);
+
+/**
+ * Listen on provided port, on all network interfaces.
+ */
+server.listen(port);
+server.on('error', onError);
+server.on('listening', onListening);
+
+/**
+ * Normalize a port into a number, string, or false.
+ */
+function normalizePort(val) {
+  var port = parseInt(val, 10);
+
+  if (isNaN(port)) {
+    // named pipe
+    return val;
+  }
+
+  if (port >= 0) {
+    // port number
+    return port;
+  }
+
+  return false;
+}
+
+/**
+ * Event listener for HTTP server "error" event.
+ */
+function onError(error) {
+  if (error.syscall !== 'listen') {
+    throw error;
+  }
+
+  var bind = typeof port === 'string'
+      ? 'Pipe ' + port
+      : 'Port ' + port;
+
+  // handle specific listen errors with friendly messages
+  switch (error.code) {
+    case 'EACCES':
+      console.error(bind + ' requires elevated privileges');
+      process.exit(1);
+      break;
+    case 'EADDRINUSE':
+      console.error(bind + ' is already in use');
+      process.exit(1);
+      break;
+    default:
+      throw error;
+  }
+}
+
+/**
+ * Event listener for HTTP server "listening" event.
+ */
+function onListening() {
+  var addr = server.address();
+  var bind = typeof addr === 'string'
+      ? 'pipe ' + addr
+      : 'port ' + addr.port;
+  debug('Listening on ' + bind);
+  console.log(`🚀 Server đang chạy tại http://localhost:${port}`);
+}
