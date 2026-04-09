@@ -1,55 +1,74 @@
-const { Server } = require("socket.io");
-const Message = require('../../../models/message');
+// File: src/shared/utils/socket.js
+const socketIo = require('socket.io');
+const jwt = require('jsonwebtoken');
+const chatService = require('../../modules/chat/chat.service');
+
 let io;
 
 module.exports = {
-    init: (httpServer) => {
-        io = new Server(httpServer, {
-            cors: { origin: "*" } // Cho phép tất cả các nguồn (để dễ test mobile)
+    init: (server) => {
+        io = socketIo(server, {
+            cors: {
+                origin: "*", 
+                methods: ["GET", "POST"]
+            }
         });
 
-        io.on("connection", (socket) => {
-            console.log("⚡ Một thiết bị đã kết nối:", socket.id);
+        // ==========================================
+        // 🔒 SOCKET MIDDLEWARE: Xác thực JWT Token
+        // ==========================================
+        io.use((socket, next) => {
+            try {
+                // Lấy token từ handshake auth (Frontend sẽ gửi lên qua đây)
+                const token = socket.handshake.auth.token;
 
-            // Khi Cán bộ đăng nhập, họ sẽ "tham gia" vào phòng của Phòng ban mình
-            socket.on("join-department", (departmentId) => {
-                socket.join(`dept_${departmentId}`);
-                console.log(`Cán bộ đã vào phòng: dept_${departmentId}`);
-            });
-
-            socket.on("disconnect", () => {
-                console.log("🔥 Thiết bị đã ngắt kết nối");
-            });
-
-            // 1. Tham gia vào phòng chat cụ thể (mỗi Report có 1 Conversation ID)
-            socket.on("join-chat", (conversationId) => {
-                socket.join(`room_${conversationId}`);
-                console.log(`User vào phòng chat: room_${conversationId}`);
-            });
-
-            // 2. Lắng nghe tin nhắn mới
-            socket.on("send-message", async (data) => {
-                try {
-                    const { conversation_id, sender_id, sender_name, content, type } = data;
-
-                    // 1. Lưu vào MongoDB
-                    const newMessage = new Message({
-                        conversation_id,
-                        sender_id,
-                        sender_name,
-                        content,
-                        type: type || 'text'
-                    });
-                    await newMessage.save();
-
-                    // 2. Gửi tin nhắn tới mọi người trong phòng chat này
-                    // (Bao gồm cả người gửi để họ thấy tin nhắn đã 'đến' server)
-                    io.to(`room_${conversation_id}`).emit("receive-message", newMessage);
-
-                } catch (error) {
-                    console.error("Lỗi gửi tin nhắn:", error.message);
-                    socket.emit("error", "Không thể gửi tin nhắn!");
+                if (!token) {
+                    return next(new Error("Authentication error: Không tìm thấy Token"));
                 }
+
+                // Giải mã token
+                const decoded = jwt.verify(token, process.env.JWT_SECRET || 'SmartCity_Nhom10_Secret_Key_2026');
+                
+                // Lưu thông tin user vào socket để dùng về sau
+                socket.user = decoded;
+                next();
+            } catch (error) {
+                return next(new Error("Authentication error: Token không hợp lệ"));
+            }
+        });
+
+        // ==========================================
+        // ⚡ XỬ LÝ SỰ KIỆN KẾT NỐI
+        // ==========================================
+        io.on('connection', (socket) => {
+            console.log(`✅ Client connected: ${socket.id} - User ID: ${socket.user.id}`);
+
+            // User tham gia vào phòng chat
+            socket.on('join_room', (conversationId) => {
+                socket.join(conversationId);
+                console.log(`User ${socket.user.username} đã vào phòng: ${conversationId}`);
+            });
+
+            // Lắng nghe sự kiện gửi tin nhắn
+            socket.on('send_message', async (data) => {
+                try {
+                    // Đảm bảo senderId luôn là ID của người đang đăng nhập (Bảo mật, tránh giả mạo ID người khác)
+                    data.senderId = socket.user.id; 
+
+                    // 1. Lưu tin nhắn vào MongoDB
+                    const savedMessage = await chatService.saveMessage(data);
+
+                    // 2. Phát tin nhắn đến phòng
+                    io.to(data.conversationId).emit('receive_message', savedMessage);
+                    
+                } catch (error) {
+                    console.error("Lỗi khi gửi tin nhắn:", error);
+                    socket.emit('error_message', { error: 'Không thể gửi tin nhắn' });
+                }
+            });
+
+            socket.on('disconnect', () => {
+                console.log(`❌ Client disconnected: ${socket.id}`);
             });
         });
 

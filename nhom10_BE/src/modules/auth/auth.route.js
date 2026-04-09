@@ -1,19 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const authController = require('./auth.controller');
+const { verifyToken } = require('../../shared/middlewares/auth.middleware');
 
-/**
- * @route   POST /api/auth/register
- * @desc    Đăng ký tài khoản cho Người dân
- * @access  Public
- */
+// Các API không cần đăng nhập
 router.post('/register', authController.register);
-
-/**
- * @route   POST /api/auth/login
- * @desc    Đăng nhập và nhận JWT Token
- * @access  Public
- */
 router.post('/login', authController.login);
+
+// Các API bắt buộc phải có Token hợp lệ
+router.get('/me', verifyToken, authController.getMe);
 
 module.exports = router;
