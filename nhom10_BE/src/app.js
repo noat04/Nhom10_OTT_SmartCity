@@ -11,8 +11,8 @@ const authRoutes = require('../src/modules/auth/auth.route');
 const reportRoutes = require('../src/modules/report/report.route');
 const connectMongoDB = require('../src/shared/configs/mongodb');
 const chatRoutes = require('../src/modules/chat/chat.route');
-const userRoutes = require('./modules/user/user.route');
-const friendRoutes = require('./modules/friend/friend.route');
+const userRoutes = require('../src/modules/user/user.route');
+const friendRoutes = require('../src/modules/friend/friend.route');
 
 var app = express();
 // Cấu hình cho phép Frontend gọi API

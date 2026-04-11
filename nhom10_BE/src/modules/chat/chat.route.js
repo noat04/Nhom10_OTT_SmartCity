@@ -12,4 +12,7 @@ router.post('/:conversationId/invite', verifyToken, authorize('OFFICIAL', 'ADMIN
 // Endpoint lấy danh sách tất cả các phòng chat của user
 router.get('/conversations', chatController.getConversations);
 
+// Endpoint lấy danh sách tất cả các phòng chat của user
+router.get('/conversations', chatController.getConversations);
+
 module.exports = router;

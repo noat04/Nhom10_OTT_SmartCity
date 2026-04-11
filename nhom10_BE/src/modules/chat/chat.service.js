@@ -28,6 +28,52 @@ const addMemberToChat = async (conversationId, newUserId, requesterId) => {
         
         return messages.reverse(); // Đảo lại mảng để hiển thị từ trên xuống dưới
     }
+
+    // Lấy danh sách tất cả phòng chat của một user
+    async getUserConversations(currentUserId) {
+        // Sử dụng Sequelize Include để tự động Join các bảng
+        const userWithConversations = await User.findByPk(currentUserId, {
+            include: [{
+                model: Conversation,
+                as: 'conversations', // Alias đã khai báo trong model User
+                include: [{
+                    model: User,
+                    as: 'members', // Alias đã khai báo trong model Conversation
+                    attributes: ['id', 'username', 'fullName', 'avatar', 'status', 'lastSeen'],
+                    through: { attributes: [] } // Ẩn các cột thừa của bảng trung gian
+                }]
+            }],
+            order: [[{ model: Conversation, as: 'conversations' }, 'updatedAt', 'DESC']] // Sắp xếp phòng chat mới nhất lên đầu
+        });
+
+        if (!userWithConversations || !userWithConversations.conversations) {
+            return [];
+        }
+
+        // Định dạng lại dữ liệu trả về cho Frontend dễ xử lý
+        const formattedConversations = userWithConversations.conversations.map(conv => {
+            const plainConv = conv.get({ plain: true });
+
+            // Phân loại và gán tên/ảnh hiển thị tùy theo loại phòng
+            if (plainConv.type === 'private') {
+                // Với chat 1-1, lấy thông tin người đối diện làm tên/ảnh phòng chat
+                const partner = plainConv.members.find(m => m.id !== currentUserId);
+                if (partner) {
+                    plainConv.name = partner.fullName || partner.username;
+                    plainConv.avatar = partner.avatar;
+                    plainConv.isOnline = partner.status === 'online';
+                }
+            } else if (plainConv.type === 'group') {
+                // Với nhóm, dùng tên/ảnh gốc của nhóm (Nếu null thì để mặc định)
+                plainConv.name = plainConv.name || 'Nhóm chưa đặt tên';
+                // plainConv.avatar = plainConv.avatar || 'link-anh-mac-dinh-cho-nhom';
+            }
+
+            return plainConv;
+        });
+
+        return formattedConversations;
+    }
 }
 
 module.exports = { addMemberToChat };

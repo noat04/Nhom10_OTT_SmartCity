@@ -46,4 +46,16 @@ const inviteMember = async (req, res) => {
     } catch (error) {
         return res.status(400).json({ success: false, message: error.message });
     }
+
+    // API: Lấy danh sách tất cả các phòng chat của user
+    async getConversations(req, res) {
+        try {
+            const currentUserId = req.user.id;
+            const conversations = await chatService.getUserConversations(currentUserId);
+            res.status(200).json({ success: true, data: conversations });
+        } catch (error) {
+            console.error("Lỗi lấy danh sách phòng chat:", error);
+            res.status(500).json({ success: false, message: "Lỗi server" });
+        }
+    }
 }
