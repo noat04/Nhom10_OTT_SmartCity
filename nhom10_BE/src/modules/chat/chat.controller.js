@@ -1,50 +1,51 @@
-// src/modules/chat/chat.controller.js
-const Message = require('../../../models/message');
-const chatService = require('./chat.service');
-const socketIO = require('../../shared/utils/socket');
+const chatService = require('../chat/chat.service');
 
-const getChatHistory = async (req, res) => {
-    try {
-        const { conversationId } = req.params;
+class ChatController {
+    // API: Tạo hoặc lấy ID phòng chat 1-1
+    async initOneToOneChat(req, res) {
+        try {
+            const { partnerId } = req.body;
+            const myId = req.user.id;
 
-        // Tìm tất cả tin nhắn của conversation này, sắp xếp từ cũ đến mới
-        const messages = await Message.find({ conversation_id: conversationId })
-            .sort({ createdAt: 1 });
+            if (!partnerId) {
+                return res.status(400).json({ success: false, message: "Thiếu partnerId" });
+            }
 
-        return res.status(200).json({
-            success: true,
-            data: messages
-        });
-    } catch (error) {
-        return res.status(500).json({
-            success: false,
-            message: "Không thể lấy lịch sử chat!"
-        });
+            // [BẢO MẬT] Kiểm tra xem 2 người đã kết bạn chưa
+            const isFriend = await Friend.findOne({
+                where: {
+                    status: 'accepted',
+                    [Op.or]: [
+                        { userId: myId, friendId: partnerId },
+                        { userId: partnerId, friendId: myId }
+                    ]
+                }
+            });
+
+            if (!isFriend) {
+                return res.status(403).json({ success: false, message: "Bạn phải kết bạn trước khi nhắn tin" });
+            }
+
+            // Gọi service để lấy hoặc tạo ID phòng chat 1-1
+            const conversationId = await chatService.getOrCreateOneToOneConversation(myId, partnerId);
+            
+            res.status(200).json({ success: true, data: { conversationId } });
+        } catch (error) {
+            console.error("Lỗi tạo chat:", error);
+            res.status(500).json({ success: false, message: "Lỗi Server" });
+        }
     }
-};
 
-const inviteMember = async (req, res) => {
-    try {
-        const { conversationId } = req.params;
-        const { newUserId } = req.body;
-        const requesterId = req.user.id; // Lấy từ token
-
-        const result = await chatService.addMemberToChat(conversationId, newUserId, requesterId);
-
-        // --- REAL-TIME: Thông báo cho nhóm chat ---
-        const io = socketIO.getIO();
-        io.to(`room_${conversationId}`).emit('member-joined', {
-            message: `Một thành viên mới đã được mời vào nhóm`,
-            newUserId: newUserId
-        });
-
-        return res.status(200).json({
-            success: true,
-            message: "Đã thêm đồng nghiệp vào hỗ trợ!",
-            data: result
-        });
-    } catch (error) {
-        return res.status(400).json({ success: false, message: error.message });
+    // API: Lấy lịch sử tin nhắn
+    async getHistory(req, res) {
+        try {
+            const { conversationId } = req.params;
+            const messages = await chatService.getConversationHistory(conversationId);
+            
+            res.status(200).json({ messages });
+        } catch (error) {
+            res.status(500).json({ message: "Lỗi khi tải lịch sử tin nhắn" });
+        }
     }
 
     // API: Lấy danh sách tất cả các phòng chat của user
@@ -55,7 +56,34 @@ const inviteMember = async (req, res) => {
             res.status(200).json({ success: true, data: conversations });
         } catch (error) {
             console.error("Lỗi lấy danh sách phòng chat:", error);
+        }
+    }
+
+    // API: Gửi tin nhắn qua HTTP POST
+    async sendMessageAPI(req, res) {
+        try {
+            const { conversationId, content, type } = req.body;
+            const senderId = req.user.id;
+
+            if (!conversationId || !content) {
+                return res.status(400).json({ success: false, message: "Thiếu ID phòng chat hoặc nội dung" });
+            }
+
+            const messageData = { conversationId, senderId, content, type };
+            
+            // 1. Lưu vào MongoDB
+            const savedMessage = await chatService.saveMessage(messageData);
+
+            // 2. Kích hoạt Socket.io để phát tin nhắn cho người nhận ngay lập tức
+            const socketUtil = require('../../shared/utils/socket');
+            const io = socketUtil.getIO();
+            io.to(conversationId).emit('receive_message', savedMessage);
+
+            res.status(201).json({ success: true, data: savedMessage });
+        } catch (error) {
+            console.error("Lỗi gửi tin nhắn API:", error);
             res.status(500).json({ success: false, message: "Lỗi server" });
         }
     }
-}
+};
+module.exports = new ChatController();

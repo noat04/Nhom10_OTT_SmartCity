@@ -8,11 +8,11 @@ const http = require('http'); // 1. BẮT BUỘC PHẢI IMPORT CÁI NÀY
 // 1. IMPORT CÁC MODULE API CỦA BẠN (Theo cấu trúc Modular)
 // Giả sử bạn đã tạo các file route trong thư mục src/modules/
 const authRoutes = require('../src/modules/auth/auth.route');
-const reportRoutes = require('../src/modules/report/report.route');
 const connectMongoDB = require('../src/shared/configs/mongodb');
 const chatRoutes = require('../src/modules/chat/chat.route');
 const userRoutes = require('../src/modules/user/user.route');
 const friendRoutes = require('../src/modules/friend/friend.route');
+
 
 var app = express();
 // Cấu hình cho phép Frontend gọi API
@@ -47,9 +47,9 @@ app.get('/', verifyToken,(req, res) => {
 
 // Gắn các API module vào tiền tố /api
 app.use('/api/auth', authRoutes);
-app.use('/api/reports', reportRoutes);
 app.use('/api/chat', chatRoutes);
-
+app.use('/api/users', userRoutes);
+app.use('/api/friends', friendRoutes);
 // ==========================================
 // 4. XỬ LÝ LỖI (ERROR HANDLING CHO API)
 // ==========================================

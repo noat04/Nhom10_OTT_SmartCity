@@ -1,22 +1,63 @@
-const db = require('../../../models');
+const { Conversation, ConversationMember, User, Sequelize } = require('../../../models'); // Sequelize (MySQL)
+const Message = require('../../../models/message'); // Mongoose (MongoDB)
 
-const addMemberToChat = async (conversationId, newUserId, requesterId) => {
-    // 1. Kiểm tra người thực hiện (requesterId) có quyền trong phòng chat này không
-    const requester = await db.ConversationUser.findOne({
-        where: { conversation_id: conversationId, user_id: requesterId }
-    });
+class ChatService {
+    // 1. Tìm hoặc tạo mới một cuộc trò chuyện 1-1 giữa 2 user
+    async getOrCreateOneToOneConversation(user1Id, user2Id) {
+        // Tìm các cuộc trò chuyện private mà user1 tham gia
+        const user1Conversations = await ConversationMember.findAll({
+            where: { userId: user1Id },
+            attributes: ['conversationId']
+        });
+        const conversationIds = user1Conversations.map(c => c.conversationId);
 
-    if (!requester || requester.role !== 'ADMIN') {
-        throw new Error("Bạn không có quyền mời thêm thành viên vào nhóm này!");
+        // Kiểm tra xem user2 có nằm trong số các conversation đó không
+        const sharedConversation = await ConversationMember.findOne({
+            where: {
+                conversationId: conversationIds,
+                userId: user2Id
+            },
+            include: [{
+                model: Conversation,
+                where: { type: 'private' },
+                as: 'conversation' // Phải khớp với alias trong model associate
+            }]
+        });
+
+        // Nếu đã từng chat, trả về conversation đó
+        if (sharedConversation) {
+            return sharedConversation.conversationId;
+        }
+
+        // Nếu chưa, tạo cuộc trò chuyện mới
+        const newConversation = await Conversation.create({
+            type: 'private',
+            createdBy: user1Id
+        });
+
+        // Thêm cả 2 user vào phòng chat
+        await ConversationMember.bulkCreate([
+            { conversationId: newConversation.id, userId: user1Id, role: 'member' },
+            { conversationId: newConversation.id, userId: user2Id, role: 'member' }
+        ]);
+
+        return newConversation.id;
     }
 
-    // 2. Kiểm tra xem user mới đã có trong nhóm chưa
-    const isExisted = await db.ConversationUser.findOne({
-        where: { conversation_id: conversationId, user_id: newUserId }
-    });
+    // 2. Lưu tin nhắn vào MongoDB
+    async saveMessage(data) {
+        const { conversationId, senderId, content, type } = data;
+        
+        const newMessage = new Message({
+            conversationId,
+            senderId,
+            content,
+            type: type || 'text',
+            status: 'sent'
+        });
 
-    if (isExisted) {
-        throw new Error("Người này đã tham gia cuộc hội thoại rồi.");
+        await newMessage.save();
+        return newMessage;
     }
 
     // 3. Lấy lịch sử tin nhắn của một cuộc hội thoại
@@ -76,4 +117,4 @@ const addMemberToChat = async (conversationId, newUserId, requesterId) => {
     }
 }
 
-module.exports = { addMemberToChat };
+module.exports = new ChatService();

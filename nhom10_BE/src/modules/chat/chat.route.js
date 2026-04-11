@@ -1,13 +1,21 @@
 const express = require('express');
 const router = express.Router();
 const chatController = require('./chat.controller');
-const { verifyToken, authorize} = require('../../shared/middlewares/auth.middleware');
 
-// Đường dẫn: GET /api/chat/:conversationId
-// Ví dụ: /api/chat/15
-router.get('/:conversationId', verifyToken, chatController.getChatHistory);
-// Thêm vào file route hiện tại
-router.post('/:conversationId/invite', verifyToken, authorize('OFFICIAL', 'ADMIN'), chatController.inviteMember);
+// SỬA DÒNG NÀY: Dùng destructuring { verifyToken } để lấy đúng hàm middleware
+const { verifyToken } = require('../../shared/middlewares/auth.middleware');
+
+// Áp dụng middleware bắt buộc đăng nhập cho toàn bộ Chat API
+router.use(verifyToken);
+
+// Endpoint lấy conversation ID để chat 1-1
+router.post('/init-1-1', chatController.initOneToOneChat);
+
+// Endpoint lấy lịch sử tin nhắn của một phòng
+router.get('/:conversationId/history', chatController.getHistory);
+
+// Endpoint gửi tin nhắn
+router.post('/message', chatController.sendMessageAPI);
 
 // Endpoint lấy danh sách tất cả các phòng chat của user
 router.get('/conversations', chatController.getConversations);
