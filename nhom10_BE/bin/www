@@ -46,26 +46,26 @@ db.sequelize.authenticate()
 // ==========================================
 // 2. KHỞI TẠO SOCKET.IO (Chat thời gian thực)
 // ==========================================
-const io = new Server(server, {
-  cors: {
-    origin: "*", // Cho phép App React Native kết nối
-    methods: ["GET", "POST"]
-  }
-});
+// const io = new Server(server, {
+//   cors: {
+//     origin: "*", // Cho phép App React Native kết nối
+//     methods: ["GET", "POST"]
+//   }
+// });
 
-// Lắng nghe các sự kiện kết nối từ Client
-io.on('connection', (socket) => {
-  console.log(`🔌 Người dùng vừa kết nối Socket. ID: ${socket.id}`);
+// // Lắng nghe các sự kiện kết nối từ Client
+// io.on('connection', (socket) => {
+//   console.log(`🔌 Người dùng vừa kết nối Socket. ID: ${socket.id}`);
 
-  // Khi người dùng ngắt kết nối (tắt app)
-  socket.on('disconnect', () => {
-    console.log(`🔌 Người dùng ngắt kết nối. ID: ${socket.id}`);
-  });
-});
+//   // Khi người dùng ngắt kết nối (tắt app)
+//   socket.on('disconnect', () => {
+//     console.log(`🔌 Người dùng ngắt kết nối. ID: ${socket.id}`);
+//   });
+// });
 
 // Lưu biến `io` vào `app` để sau này các Controller có thể lấy ra dùng
 // (Ví dụ: Để gửi thông báo khi có phản ánh mới)
-app.set('io', io);
+// app.set('io', io);
 
 /**
  * Listen on provided port, on all network interfaces.

@@ -3,16 +3,25 @@ var logger = require('morgan');
 // var cors = require('cors'); // (Bạn cần chạy: npm install cors)
 // Các route cần bảo mật (Protected)
 const { verifyToken } = require('../src/shared/middlewares/auth.middleware');
-
+const cors = require('cors');
+const http = require('http'); // 1. BẮT BUỘC PHẢI IMPORT CÁI NÀY
 // 1. IMPORT CÁC MODULE API CỦA BẠN (Theo cấu trúc Modular)
 // Giả sử bạn đã tạo các file route trong thư mục src/modules/
 const authRoutes = require('../src/modules/auth/auth.route');
 const reportRoutes = require('../src/modules/report/report.route');
 const connectMongoDB = require('../src/shared/configs/mongodb');
 const chatRoutes = require('../src/modules/chat/chat.route');
+const userRoutes = require('./modules/user/user.route');
+const friendRoutes = require('./modules/friend/friend.route');
 
 var app = express();
-
+// Cấu hình cho phép Frontend gọi API
+app.use(cors({
+  origin: 'http://localhost:5173', // Địa chỉ Frontend Vite của bạn
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'], // Cho phép gửi header chứa Token
+  credentials: true // Bắt buộc bật dòng này nếu API có dùng Token/Cookie
+}));
 // ==========================================
 // 2. MIDDLEWARES (Xử lý request đầu vào)
 // ==========================================

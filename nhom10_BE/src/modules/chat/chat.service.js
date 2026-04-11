@@ -19,12 +19,15 @@ const addMemberToChat = async (conversationId, newUserId, requesterId) => {
         throw new Error("Người này đã tham gia cuộc hội thoại rồi.");
     }
 
-    // 3. Thêm thành viên mới
-    return await db.ConversationUser.create({
-        conversation_id: conversationId,
-        user_id: newUserId,
-        role: 'MEMBER' // Mặc định người được mời là Member
-    });
-};
+    // 3. Lấy lịch sử tin nhắn của một cuộc hội thoại
+    async getConversationHistory(conversationId, limit = 50, skip = 0) {
+        const messages = await Message.find({ conversationId })
+            .sort({ createdAt: -1 }) // Lấy mới nhất
+            .skip(skip)
+            .limit(limit);
+        
+        return messages.reverse(); // Đảo lại mảng để hiển thị từ trên xuống dưới
+    }
+}
 
 module.exports = { addMemberToChat };
