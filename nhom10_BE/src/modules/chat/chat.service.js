@@ -54,13 +54,31 @@ class ChatService {
         return newMessage;
     }
 
-    async getConversationHistory(conversationId, limit = 50, skip = 0) {
+    // async getConversationHistory(conversationId, limit = 50, skip = 0) {
+    //     const messages = await Message.find({ conversationId })
+    //         .sort({ createdAt: -1 })
+    //         .skip(skip)
+    //         .limit(limit);
+
+    //     return messages.reverse();
+    // }
+    // Lấy lịch sử tin nhắn có phân trang
+    async getConversationHistory(conversationId, page = 1, limit = 20) {
+        const skip = (page - 1) * limit;
+        
+        // Sắp xếp -1 (Mới nhất lên trước) để phân trang chính xác từ dưới lên
         const messages = await Message.find({ conversationId })
-            .sort({ createdAt: -1 })
+            .sort({ createdAt: -1 }) 
             .skip(skip)
             .limit(limit);
-
-        return messages.reverse();
+        
+        // Sau khi lấy được 1 cụm 20 tin nhắn, ta đảo ngược mảng lại 
+        // để Frontend hiển thị đúng chiều thời gian (từ trên xuống dưới)
+        return {
+            messages: messages.reverse(),
+            currentPage: page,
+            hasMore: messages.length === limit // Nếu trả về đúng 20 tin, nghĩa là có thể còn trang sau
+        };
     }
 
     async getUserConversations(currentUserId) {

@@ -12,6 +12,7 @@ const connectMongoDB = require('../src/shared/configs/mongodb');
 const chatRoutes = require('../src/modules/chat/chat.route');
 const userRoutes = require('../src/modules/user/user.route');
 const friendRoutes = require('../src/modules/friend/friend.route');
+const uploadRoutes = require('../src/modules/upload/upload.route');
 
 
 var app = express();
@@ -29,6 +30,7 @@ app.use(cors({
 app.use(logger('dev'));
 app.use(express.json()); // Phân tích body chứa JSON
 app.use(express.urlencoded({ extended: false }));
+app.use(express.static('public'));
 
 // GHI CHÚ: Đã XÓA phần view engine (pug) và thư mục static (public)
 // vì đây là API thuần, không render giao diện HTML.
@@ -50,6 +52,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/friends', friendRoutes);
+app.use('/api/upload', uploadRoutes); 
 // ==========================================
 // 4. XỬ LÝ LỖI (ERROR HANDLING CHO API)
 // ==========================================

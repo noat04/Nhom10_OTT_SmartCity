@@ -1,40 +1,40 @@
-// src/hooks/useChat.js
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { io } from 'socket.io-client';
 
-const SOCKET_SERVER_URL = 'http://localhost:3000'; // Phải khớp với backend
+const SOCKET_SERVER_URL = 'http://localhost:3000';
 let socket;
 
-export const useChat = (conversationId, currentUserId) => {
-  const [messages, setMessages] = useState([]);
-  const [isTyping, setIsTyping] = useState(false);
+export const useChat = (conversationId, currentUserId, onNewMessage, onTyping, onSeen) => {
 
   useEffect(() => {
     if (!conversationId) return;
 
+    // connect socket 1 lần
     if (!socket) {
       socket = io(SOCKET_SERVER_URL, {
-        auth: { token: localStorage.getItem('token') } // Rất quan trọng nếu BE yêu cầu JWT
+        auth: { token: localStorage.getItem('token') }
       });
     }
 
+    // join room
     socket.emit('joinConversation', conversationId);
 
-    const handleNewMessage = (newMsg) => {
-      // 💡 Kiểm tra ID an toàn để tránh trùng lặp
-      const senderId = newMsg.senderId || newMsg.sender?._id || newMsg.sender || newMsg.userId;
-      
-      // Nếu tin nhắn là của NGƯỜI KHÁC gửi thì mới thêm vào (vì tin của mình đã hiện trước qua Optimistic UI)
+    // 🔥 nhận message realtime
+    const handleNewMessage = (msg) => {
+      const senderId = msg.senderId || msg.sender?._id || msg.sender;
+
+      // ❗ chỉ nhận message người khác (tránh duplicate optimistic)
       if (String(senderId) !== String(currentUserId)) {
-        setMessages((prev) => [...prev, newMsg]);
+        onNewMessage?.(msg);
       }
     };
 
     socket.on('newMessage', handleNewMessage);
 
+    // 🔥 typing
     socket.on('typing', (data) => {
       if (data.conversationId === conversationId) {
-        setIsTyping(data.isTyping);
+        onTyping?.(data.isTyping);
       }
     });
 
@@ -42,19 +42,35 @@ export const useChat = (conversationId, currentUserId) => {
       socket.emit('leaveConversation', conversationId);
       socket.off('newMessage', handleNewMessage);
       socket.off('typing');
-      setMessages([]); 
     };
-  }, [conversationId, currentUserId]);
+  }, [conversationId]);
 
+  // emit typing
   const emitTyping = (typingStatus) => {
     socket?.emit('typing', { conversationId, isTyping: typingStatus });
   };
 
-  // 👉 HÀM PHÁT TÍN HIỆU (Phải có ở đây)
-  const broadcastMessage = (savedMsg) => {
-    socket?.emit('notify_new_message', savedMsg);
+  // emit seen
+  const emitSeen = () => {
+    socket?.emit('seen', { conversationId });
   };
 
-  // 👉 BẮT BUỘC PHẢI TRẢ VỀ HÀM NÀY
-  return { messages, isTyping, emitTyping, broadcastMessage }; 
+  // 🔥 Xử lý nhận sự kiện SEEN từ server
+  useEffect(() => {
+    if (!conversationId) return;
+
+    const handleSeen = (data) => {
+      if (data.conversationId === conversationId) {
+        onSeen?.(data);
+      }
+    };
+
+    socket?.on('user_seen_messages', handleSeen);
+
+    return () => {
+      socket?.off('user_seen_messages', handleSeen);
+    };
+  }, [conversationId]);
+
+  return { emitTyping, emitSeen };
 };

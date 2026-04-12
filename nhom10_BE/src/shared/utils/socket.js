@@ -3,7 +3,7 @@ const socketIo = require('socket.io');
 const jwt = require('jsonwebtoken');
 const chatService = require('../../modules/chat/chat.service');
 const { User } = require('../../../models'); // Đảm bảo đường dẫn này đúng
-
+const onlineUsers = new Map();
 let io;
 
 module.exports = {
@@ -41,6 +41,7 @@ module.exports = {
         // ==========================================
         io.on('connection', async (socket) => {
             const userId = socket.user.id || socket.user._id;
+            
             console.log(`✅ Client connected: ${socket.id} - User ID: ${userId}`);
 
             // 1. USER ONLINE: Cập nhật MySQL và báo cho mọi người
@@ -58,6 +59,11 @@ module.exports = {
             //     // đang mở đúng cái phòng chat đó (ngoại trừ người vừa gửi)
             //     socket.to(msg.conversationId).emit('newMessage', msg);
             // });
+            // 1. USER ONLINE
+            socket.on("userOnline", (userId) => {
+                onlineUsers.set(userId, socket.id);
+                io.emit("updateOnlineUsers", Array.from(onlineUsers.keys()));
+            });
             
             // 2. THAM GIA PHÒNG CHAT (Khớp với Frontend: joinConversation)
             socket.on('joinConversation', (conversationId) => {
@@ -107,6 +113,22 @@ module.exports = {
                 // Lưu thông tin user vào socket để dùng về sau
                 socket.user = decoded;
                 next();
+            });
+            // 6. XỬ LÝ SEEN (Đã xem)
+            socket.on("seen", async ({ conversationId }) => {
+                try {
+                    const userId = socket.user.id || socket.user._id;
+
+                    console.log(`User ${userId} đã xem phòng ${conversationId}`);
+
+                    socket.to(conversationId).emit("user_seen_messages", { 
+                        conversationId, 
+                        userId
+                    });
+
+                } catch (error) {
+                    console.error("Lỗi seen:", error);
+                }
             });
         });
         return io;

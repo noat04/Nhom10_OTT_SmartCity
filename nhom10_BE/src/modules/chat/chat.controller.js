@@ -37,15 +37,35 @@ class ChatController {
         }
     }
 
+    // async getHistory(req, res) {
+    //     try {
+    //         const { conversationId } = req.params;
+    //         const messages = await chatService.getConversationHistory(conversationId);
+            
+    //         res.status(200).json({ success: true, data: messages });
+
+    //     } catch (error) {
+    //         res.status(500).json({ success: false, message: "Lỗi load lịch sử" });
+    //     }
+    // }
+    // API: Lấy lịch sử tin nhắn
     async getHistory(req, res) {
         try {
             const { conversationId } = req.params;
-            const messages = await chatService.getConversationHistory(conversationId);
             
-            res.status(200).json({ success: true, data: messages });
+            // Lấy page và limit từ query param (VD: /api/chat/123/history?page=1&limit=20)
+            const page = parseInt(req.query.page) || 1;
+            const limit = parseInt(req.query.limit) || 20;
 
+            const result = await chatService.getConversationHistory(conversationId, page, limit);
+            
+            res.status(200).json({ 
+                success: true, 
+                data: result 
+            });
         } catch (error) {
-            res.status(500).json({ success: false, message: "Lỗi load lịch sử" });
+            console.error(error);
+            res.status(500).json({ success: false, message: "Lỗi khi tải lịch sử tin nhắn" });
         }
     }
 
