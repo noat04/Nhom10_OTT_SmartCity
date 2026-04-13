@@ -25,7 +25,12 @@ module.exports = (sequelize, DataTypes) => {
     coverImage: DataTypes.STRING,
     bio: DataTypes.TEXT,
     status: { type: DataTypes.STRING, defaultValue: 'offline' },
-    lastSeen: DataTypes.DATE
+    lastSeen: DataTypes.DATE,
+
+    // 🔥 THÊM OTP
+    otp: DataTypes.STRING,
+    otpExpires: DataTypes.DATE,
+    isVerified: { type: DataTypes.BOOLEAN, defaultValue: false }
   }, {
     sequelize,
     modelName: 'User',

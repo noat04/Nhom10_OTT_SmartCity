@@ -50,6 +50,28 @@ class AuthController {
             res.status(500).json({ success: false, message: 'Lỗi server' });
         }
     }
+
+    async verifyOTP(req, res) {
+        try {
+            const { email, otp } = req.body;
+            const result = await authService.verifyOTP(email, otp);
+
+            res.json({ success: true, ...result });
+        } catch (err) {
+            res.status(400).json({ success: false, message: err.message });
+        }
+    }
+
+    async resendOTP(req, res) {
+        try {
+            const { email } = req.body;
+            const result = await authService.resendOTP(email);
+
+            res.json({ success: true, ...result });
+        } catch (err) {
+            res.status(400).json({ success: false, message: err.message });
+        }
+    }
 }
 
 module.exports = new AuthController();
