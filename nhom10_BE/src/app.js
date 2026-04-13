@@ -8,7 +8,7 @@ const http = require('http'); // 1. BẮT BUỘC PHẢI IMPORT CÁI NÀY
 // 1. IMPORT CÁC MODULE API CỦA BẠN (Theo cấu trúc Modular)
 // Giả sử bạn đã tạo các file route trong thư mục src/modules/
 const authRoutes = require('../src/modules/auth/auth.route');
-const connectMongoDB = require('../src/shared/configs/mongodb');
+// const connectMongoDB = require('../src/shared/configs/mongodb');
 const chatRoutes = require('../src/modules/chat/chat.route');
 const userRoutes = require('../src/modules/user/user.route');
 const friendRoutes = require('../src/modules/friend/friend.route');
@@ -81,5 +81,5 @@ app.use(function(err, req, res, next) {
 });
 
 // Gọi kết nối
-connectMongoDB();
+// connectMongoDB();
 module.exports = app;

@@ -31,7 +31,7 @@ const ConversationList = ({
     <div className="flex-1 overflow-y-auto bg-white custom-scrollbar">
       {conversations.map((conversation) => (
         <ConversationItem
-          key={conversation.id}
+          key={conversation._id}
           avatar={conversation.avatar}
           name={conversation.name}
           lastMessage={conversation.lastMessage}
@@ -39,9 +39,9 @@ const ConversationList = ({
           unreadCount={conversation.unreadCount}
           isOnline={conversation.isOnline}
           // So sánh ID để biết đoạn chat nào đang được chọn (highlight màu xanh)
-          isActive={conversation.id === activeConversationId} 
+          isActive={conversation._id === activeConversationId} 
           // Truyền ID lên component cha (MainLayout/Sidebar) để gọi API lấy tin nhắn
-          onClick={() => onSelectConversation(conversation.id)} 
+          onClick={() => onSelectConversation(conversation._id)} 
         />
       ))}
     </div>

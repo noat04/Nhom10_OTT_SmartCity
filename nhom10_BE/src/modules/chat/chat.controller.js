@@ -1,30 +1,29 @@
 const chatService = require('../chat/chat.service');
-const { Friend, Sequelize } = require('../../../models');
-const { Op } = Sequelize;
+// 1. XÓA Import Sequelize và Op. Thay bằng import model Friend trực tiếp
+const Friend = require('../../../models/friend');
 
 class ChatController {
 
     async initOneToOneChat(req, res) {
         try {
             const { partnerId } = req.body;
-            const myId = req.user.id;
+            const myId = req.user.id; // Mongoose mặc định vẫn hỗ trợ req.user.id (trỏ tới _id)
 
             if (!partnerId) {
                 return res.status(400).json({ success: false, message: "Thiếu partnerId" });
             }
 
+            // 2. CHUYỂN ĐỔI TỪ Sequelize sang cú pháp Mongoose ($or)
             const isFriend = await Friend.findOne({
-                where: {
-                    status: 'accepted',
-                    [Op.or]: [
-                        { userId: myId, friendId: partnerId },
-                        { userId: partnerId, friendId: myId }
-                    ]
-                }
+                status: 'accepted',
+                $or: [
+                    { userId: myId, friendId: partnerId },
+                    { userId: partnerId, friendId: myId }
+                ]
             });
 
             if (!isFriend) {
-                return res.status(403).json({ success: false, message: "Phải kết bạn trước" });
+                return res.status(403).json({ success: false, message: "Phải kết bạn trước khi tạo cuộc trò chuyện" });
             }
 
             const conversationId = await chatService.getOrCreateOneToOneConversation(myId, partnerId);
@@ -37,17 +36,6 @@ class ChatController {
         }
     }
 
-    // async getHistory(req, res) {
-    //     try {
-    //         const { conversationId } = req.params;
-    //         const messages = await chatService.getConversationHistory(conversationId);
-            
-    //         res.status(200).json({ success: true, data: messages });
-
-    //     } catch (error) {
-    //         res.status(500).json({ success: false, message: "Lỗi load lịch sử" });
-    //     }
-    // }
     // API: Lấy lịch sử tin nhắn
     async getHistory(req, res) {
         try {
@@ -82,25 +70,63 @@ class ChatController {
         }
     }
 
+    // async sendMessageAPI(req, res) {
+    //     try {
+    //         const { conversationId, content, type } = req.body;
+    //         const senderId = req.user.id;
+
+    //         if (!conversationId || !content) {
+    //             return res.status(400).json({ success: false, message: "Thiếu dữ liệu" });
+    //         }
+
+    //         const messageData = { conversationId, senderId, content, type };
+
+    //         // 1. Save DB
+    //         const savedMessage = await chatService.saveMessage(messageData);
+
+    //         // 2. Emit realtime (QUAN TRỌNG)
+    //         const socketUtil = require('../../shared/utils/socket');
+    //         const io = socketUtil.getIO();
+
+    //         // 💡 LƯU Ý MONGODB: Ép kiểu conversationId về String để Socket.io hiểu đúng tên Room
+    //         io.to(conversationId.toString()).emit('newMessage', savedMessage);
+
+    //         res.status(201).json({ success: true, data: savedMessage });
+
+    //     } catch (error) {
+    //         console.error(error);
+    //         res.status(500).json({ success: false, message: "Lỗi server" });
+    //     }
+    // }
     async sendMessageAPI(req, res) {
         try {
-            const { conversationId, content, type } = req.body;
+            // 👉 SỬA DÒNG NÀY: Bổ sung thêm fileUrl, fileName, fileSize
+            const { conversationId, content, type, fileUrl, fileName, fileSize } = req.body;
             const senderId = req.user.id;
 
-            if (!conversationId || !content) {
+            if (!conversationId) {
                 return res.status(400).json({ success: false, message: "Thiếu dữ liệu" });
             }
 
-            const messageData = { conversationId, senderId, content, type };
+            // 👉 SỬA DÒNG NÀY: Gói ghém đầy đủ đồ đạc mang đi lưu
+            const messageData = { 
+                conversationId, 
+                senderId, 
+                content, 
+                type,
+                fileUrl,     // Đưa link S3 vào đây
+                fileName,    // Đưa tên file vào
+                fileSize     // Đưa dung lượng vào
+            };
 
             // 1. Save DB
             const savedMessage = await chatService.saveMessage(messageData);
 
-            // 2. Emit realtime (QUAN TRỌNG)
+            // 2. Emit realtime
             const socketUtil = require('../../shared/utils/socket');
             const io = socketUtil.getIO();
 
-            io.to(conversationId).emit('newMessage', savedMessage);
+            io.to(conversationId.toString()).emit('newMessage', savedMessage);
 
             res.status(201).json({ success: true, data: savedMessage });
 

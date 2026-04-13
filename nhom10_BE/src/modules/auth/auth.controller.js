@@ -1,5 +1,5 @@
 const authService = require('./auth.service');
-const { User } = require('../../../models');
+const  User  = require('../../../models/user');
 
 class AuthController {
     async register(req, res) {

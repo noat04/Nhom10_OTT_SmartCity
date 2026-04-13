@@ -1,4 +1,4 @@
-const { User } = require('../../../models'); // Đường dẫn trỏ ra thư mục models gốc
+const User = require('../../../models/user'); // Nên viết hoa chữ U cho chuẩn tên file
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
@@ -7,12 +7,13 @@ class AuthService {
     async register(data) {
         const { username, email, password, fullName } = data;
 
-        // Kiểm tra email hoặc username đã tồn tại chưa
+        // 1. SỬA: Xóa chữ 'where'. Truyền thẳng { email } hoặc { username }
         const existingUser = await User.findOne({ 
-            where: { email } 
+            $or: [{ email }, { username }] // Nên check trùng cả email lẫn username
         });
+        
         if (existingUser) {
-            throw new Error('Email này đã được sử dụng!');
+            throw new Error('Email hoặc Username này đã được sử dụng!');
         }
 
         // Mã hóa mật khẩu
@@ -29,7 +30,7 @@ class AuthService {
         });
 
         return {
-            id: newUser.id,
+            id: newUser._id, // Mongoose lưu ID ở trường _id
             email: newUser.email,
             username: newUser.username
         };
@@ -37,8 +38,9 @@ class AuthService {
 
     // Đăng nhập
     async login(email, password) {
-        // Tìm user theo email
-        const user = await User.findOne({ where: { email } });
+        // 2. SỬA: Bỏ 'where' VÀ thêm .select('+password') để lấy mật khẩu ra đối chiếu
+        const user = await User.findOne({ email }).select('+password');
+        
         if (!user) {
             throw new Error('Email không tồn tại!');
         }
@@ -51,19 +53,21 @@ class AuthService {
 
         // Tạo JWT Token
         const token = jwt.sign(
-            { id: user.id, email: user.email }, 
-            process.env.JWT_SECRET || 'Secret_Key_Mac_Dinh', 
+            { id: user._id, email: user.email }, // Dùng user._id cho chuẩn MongoDB
+            process.env.JWT_SECRET || 'SmartCity_Nhom10_Secret_Key_2026', 
             { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
         );
 
+        // Chuẩn bị data trả về (không trả về password)
         return {
             token,
             user: {
-                id: user.id,
+                id: user._id,
                 username: user.username,
                 email: user.email,
                 fullName: user.fullName,
-                avatar: user.avatar
+                avatar: user.avatar,
+                status: user.status
             }
         };
     }

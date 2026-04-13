@@ -2,6 +2,7 @@
 import React from 'react';
 import TextMessage from './TextMessage';
 import ImageMessage from './ImageMessage';
+import VideoMessage from './VideoMessage';
 import FileMessage from './FileMessage';
 import SystemMessage from './SystemMessage';
 
@@ -26,6 +27,9 @@ const MessageBubble = ({
   const renderContent = () => {
     switch (type) {
       case 'image': return <ImageMessage url={url} onImageClick={onImageClick} />;
+     case 'video': 
+      // 👉 SỬA DÒNG NÀY: Chỉ truyền url, không truyền onVideoClick
+      return <VideoMessage url={url} />;
       case 'file': return <FileMessage fileUrl={url} fileName={fileName} fileSize={fileSize} isMine={isMine} />;
       case 'text':
       default: return <TextMessage content={content} />;

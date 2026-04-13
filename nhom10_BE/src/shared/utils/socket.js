@@ -2,7 +2,9 @@
 const socketIo = require('socket.io');
 const jwt = require('jsonwebtoken');
 const chatService = require('../../modules/chat/chat.service');
-const { User } = require('../../../models'); // Đảm bảo đường dẫn này đúng
+// 1. Sửa đường dẫn import User Model (Xóa Sequelize)
+const User = require('../../../models/user'); 
+
 const onlineUsers = new Map();
 let io;
 
@@ -11,7 +13,6 @@ module.exports = {
         io = socketIo(server, {
             cors: {
                 origin: "http://localhost:5173", 
-
                 methods: ["GET", "POST"]
             }
         });
@@ -21,7 +22,6 @@ module.exports = {
         // ==========================================
         io.use((socket, next) => {
             try {
-                // Hỗ trợ lấy token từ handshake auth hoặc query
                 const token = socket.handshake.auth.token || socket.handshake.query.token;
 
                 if (!token) {
@@ -40,92 +40,71 @@ module.exports = {
         // ⚡ XỬ LÝ SỰ KIỆN KẾT NỐI
         // ==========================================
         io.on('connection', async (socket) => {
-            const userId = socket.user.id || socket.user._id;
+            // Mongoose ID có thể nằm ở _id hoặc id tùy vào cấu hình JSON
+            const userId = (socket.user.id || socket.user._id).toString(); 
             
             console.log(`✅ Client connected: ${socket.id} - User ID: ${userId}`);
 
-            // 1. USER ONLINE: Cập nhật MySQL và báo cho mọi người
+            // 1. USER ONLINE (Mongoose)
             try {
-                await User.update({ status: 'online' }, { where: { id: userId } });
+                // Thay thế where: {id: ...} bằng findByIdAndUpdate
+                await User.findByIdAndUpdate(userId, { status: 'online' });
                 socket.broadcast.emit('user_status_changed', { userId, status: 'online' });
             } catch (error) {
                 console.error("Lỗi cập nhật trạng thái Online:", error);
             }
 
-
-            // 👉 THÊM ĐOẠN NÀY: Lắng nghe tín hiệu báo tin nhắn mới từ Frontend
-            // socket.on('notify_new_message', (msg) => {
-            //     // socket.to(...) sẽ gửi tin nhắn này cho TẤT CẢ mọi người 
-            //     // đang mở đúng cái phòng chat đó (ngoại trừ người vừa gửi)
-            //     socket.to(msg.conversationId).emit('newMessage', msg);
-            // });
-            // 1. USER ONLINE
-            socket.on("userOnline", (userId) => {
-                onlineUsers.set(userId, socket.id);
+            // Lắng nghe sự kiện báo online từ client
+            socket.on("userOnline", (incomingUserId) => {
+                onlineUsers.set(incomingUserId.toString(), socket.id);
                 io.emit("updateOnlineUsers", Array.from(onlineUsers.keys()));
             });
             
-            // 2. THAM GIA PHÒNG CHAT (Khớp với Frontend: joinConversation)
+            // 2. THAM GIA PHÒNG CHAT (Nhớ toString conversationId)
             socket.on('joinConversation', (conversationId) => {
-                socket.join(conversationId);
-                console.log(`User ${userId} đã vào phòng: ${conversationId}`);
+                const roomId = conversationId.toString();
+                socket.join(roomId);
+                console.log(`User ${userId} đã vào phòng: ${roomId}`);
             });
 
-            // 3. RỜI PHÒNG CHAT (Khớp với Frontend: leaveConversation)
+            // 3. RỜI PHÒNG CHAT
             socket.on('leaveConversation', (conversationId) => {
-                socket.leave(conversationId);
-                console.log(`User ${userId} đã rời phòng: ${conversationId}`);
+                const roomId = conversationId.toString();
+                socket.leave(roomId);
+                console.log(`User ${userId} đã rời phòng: ${roomId}`);
             });
 
-            // 4. TRẠNG THÁI ĐANG GÕ PHÍM (Khớp với Frontend: typing)
+            // 4. TRẠNG THÁI ĐANG GÕ PHÍM
             socket.on('typing', (data) => {
-                // data = { conversationId, isTyping }
-                // Gửi sự kiện này cho người bên kia trong phòng (trừ người gửi)
-                socket.to(data.conversationId).emit('typing', {
+                socket.to(data.conversationId.toString()).emit('typing', {
                     conversationId: data.conversationId,
                     userId: userId,
                     isTyping: data.isTyping
                 });
             });
 
-            // 5. GỬI TIN NHẮN TRỰC TIẾP QUA SOCKET (Tùy chọn)
+            // 5. GỬI TIN NHẮN TRỰC TIẾP QUA SOCKET
             socket.on('send_message', async (data) => {
                 try {
                     data.senderId = userId; 
                     const savedMessage = await chatService.saveMessage(data);
 
-                    // Phát sự kiện 'newMessage' (thay vì receive_message) cho cả phòng
-                    io.to(data.conversationId).emit('newMessage', savedMessage);
+                    // Phát sự kiện 'newMessage' vào đúng room
+                    io.to(data.conversationId.toString()).emit('newMessage', savedMessage);
                 } catch (error) {
                     console.error("Lỗi gửi tin nhắn:", error.message);
                     socket.emit("error", "Không thể gửi tin nhắn!");
                 }
-                // Lấy token từ handshake auth (Frontend sẽ gửi lên qua đây)
-                const token = socket.handshake.auth.token;
-
-                if (!token) {
-                    return next(new Error("Authentication error: Không tìm thấy Token"));
-                }
-
-                // Giải mã token
-                const decoded = jwt.verify(token, process.env.JWT_SECRET || 'SmartCity_Nhom10_Secret_Key_2026');
-                
-                // Lưu thông tin user vào socket để dùng về sau
-                socket.user = decoded;
-                next();
             });
+
             // 6. XỬ LÝ SEEN (Đã xem)
             socket.on("seen", async ({ conversationId }) => {
                 try {
-                    const userId = socket.user.id || socket.user._id;
-
                     console.log(`User ${userId} đã xem phòng ${conversationId}`);
-
-                    socket.to(conversationId).emit("user_seen_messages", { 
+                    socket.to(conversationId.toString()).emit("user_seen_messages", { 
                         conversationId, 
                         userId
                     });
-
                 } catch (error) {
                     console.error("Lỗi seen:", error);
                 }
@@ -134,42 +113,36 @@ module.exports = {
             // 7. XỬ LÝ THẢ CẢM XÚC (REACTION)
             socket.on("react_message", async ({ conversationId, messageId, type }) => {
                 try {
-                    const userId = socket.user.id || socket.user._id;
-
-                    // Gọi Service để xử lý logic (Thêm/Sửa/Xóa reaction vào Database)
                     const updatedReactions = await chatService.addOrUpdateReaction(messageId, userId, type);
 
-                    // 👉 Đổi "reactions_updated" thành "message_reacted" cho khớp với Frontend
-                    io.to(conversationId).emit("message_reacted", {
+                    io.to(conversationId.toString()).emit("message_reacted", {
                         messageId: messageId,
                         reactions: updatedReactions
                     });
-
                 } catch (error) {
                     console.error("Lỗi khi thả cảm xúc:", error);
                 }
             });
 
-            // 6. SỰ KIỆN NGẮT KẾT NỐI (Khi user tắt tab hoặc bấm Đăng xuất)
+            // 8. SỰ KIỆN NGẮT KẾT NỐI
             socket.on('disconnect', async () => {
                 console.log(`❌ Client disconnected: ${socket.id} - User ID: ${userId}`);
                 
                 try {
-                    // 1. Nếu bạn đang dùng biến onlineUsers (Map), phải xóa nó đi:
-                    if (onlineUsers && onlineUsers.has(userId)) {
+                    // Xóa khỏi Map online
+                    if (onlineUsers.has(userId)) {
                         onlineUsers.delete(userId);
-                        // Báo cho mọi người biết danh sách online mới
                         io.emit("updateOnlineUsers", Array.from(onlineUsers.keys()));
                     }
 
-                    // 2. Cập nhật Database MySQL thành Offline
+                    // Cập nhật Database (Mongoose) thành Offline
                     const currentTime = new Date();
-                    await User.update(
-                        { status: 'offline', lastSeen: currentTime }, 
-                        { where: { id: userId } }
-                    );
+                    await User.findByIdAndUpdate(userId, { 
+                        status: 'offline', 
+                        lastSeen: currentTime 
+                    });
 
-                    // 3. Phát sóng trạng thái Offline cho mọi người (để tắt chấm xanh)
+                    // Phát sóng cho mọi người biết
                     socket.broadcast.emit('user_status_changed', { 
                         userId: userId, 
                         status: 'offline',
@@ -181,10 +154,10 @@ module.exports = {
             });
            
         });
-
         
         return io;
     },
+    
     getIO: () => {
         if (!io) throw new Error("Socket.io chưa được khởi tạo!");
         return io;

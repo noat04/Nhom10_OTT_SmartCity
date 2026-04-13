@@ -1,143 +1,161 @@
-const { Conversation, ConversationMember, User, Sequelize } = require('../../../models');
+const Conversation = require('../../../models/conversation');
 const Message = require('../../../models/message');
-const Reaction = require('../../../models/reaction'); // Đường dẫn trỏ tới model Reaction của bạn
-
-const { Op } = Sequelize;
-
+const User = require('../../../models/user');
+// Thêm dòng này lên đầu file chat.service.js nếu chưa có
+const FileUpload = require('../../../models/fileupload');
 class ChatService {
 
+    // 1. LẤY HOẶC TẠO CUỘC HỘI THOẠI 1-1
     async getOrCreateOneToOneConversation(user1Id, user2Id) {
-
-        const user1Conversations = await ConversationMember.findAll({
-            where: { userId: user1Id },
-            attributes: ['conversationId']
-        });
-
-        const conversationIds = user1Conversations.map(c => c.conversationId);
-
-        const sharedConversation = await ConversationMember.findOne({
-            where: {
-                conversationId: { [Op.in]: conversationIds },
-                userId: user2Id
-            },
-            include: [{
-                model: Conversation,
-                where: { type: 'private' },
-                as: 'conversation'
-            }]
+        // Tìm cuộc hội thoại private có chứa CẢ 2 user trong mảng members
+        const sharedConversation = await Conversation.findOne({
+            type: 'private',
+            'members.user': { $all: [user1Id, user2Id] }, // $all: Yêu cầu phải có mặt cả 2 ID
+            members: { $size: 2 } // $size: Đảm bảo chỉ có đúng 2 thành viên
         });
 
         if (sharedConversation) {
-            return sharedConversation.conversationId;
+            return sharedConversation._id; // Trả về _id theo chuẩn MongoDB
         }
 
+        // Nếu chưa có thì tạo mới (Gộp luôn việc insert User vào mảng trong 1 thao tác duy nhất)
         const newConversation = await Conversation.create({
             type: 'private',
-            createdBy: user1Id
+            createdBy: user1Id,
+            members: [
+                { user: user1Id, role: 'member' },
+                { user: user2Id, role: 'member' }
+            ]
         });
 
-        await ConversationMember.bulkCreate([
-            { conversationId: newConversation.id, userId: user1Id },
-            { conversationId: newConversation.id, userId: user2Id }
-        ]);
-
-        return newConversation.id;
+        return newConversation._id;
     }
 
+
+    // 2. LƯU TIN NHẮN
+    // async saveMessage(data) {
+    //     const newMessage = await Message.create({
+    //         ...data,
+    //         type: data.type || 'text',
+    //         status: 'sent'
+    //     });
+
+    //     // 💡 QUAN TRỌNG: Cập nhật lại trường latestMessage cho Conversation
+    //     // để hiển thị tin nhắn mới nhất ra màn hình danh sách Chat
+    //     await Conversation.findByIdAndUpdate(data.conversationId, {
+    //         latestMessage: newMessage._id
+    //     });
+
+    //     return newMessage;
+    // }
     async saveMessage(data) {
-        const newMessage = new Message({
+        // 1. Lưu tin nhắn vào collection Message như bình thường
+        const newMessage = await Message.create({
             ...data,
-            type: data.type || 'text',
             status: 'sent'
         });
 
-        await newMessage.save();
+        // Cập nhật latestMessage cho Conversation...
+        await Conversation.findByIdAndUpdate(data.conversationId, {
+            latestMessage: newMessage._id
+        });
+
+        // 2. 👉 NẾU TIN NHẮN CÓ FILE -> LƯU THÊM VÀO KHO FILE UPLOAD
+        if (data.fileUrl) {
+            // Xác định loại file cho chuẩn với enum
+            let fileExtType = 'file';
+            if (data.type === 'image') fileExtType = 'image';
+            else if (data.type === 'video') fileExtType = 'video';
+
+            await FileUpload.create({
+                uploaderId: data.senderId,
+                messageId: newMessage._id,
+                conversationId: data.conversationId,
+                fileName: data.fileName || 'Thư mục không tên',
+                fileUrl: data.fileUrl,
+                fileType: fileExtType,
+                size: data.fileSize || 0
+            });
+        }
+
         return newMessage;
     }
 
-    // async getConversationHistory(conversationId, limit = 50, skip = 0) {
-    //     const messages = await Message.find({ conversationId })
-    //         .sort({ createdAt: -1 })
-    //         .skip(skip)
-    //         .limit(limit);
 
-    //     return messages.reverse();
-    // }
-    // Lấy lịch sử tin nhắn có phân trang
+    // 3. LẤY LỊCH SỬ TIN NHẮN (CÓ PHÂN TRANG)
     async getConversationHistory(conversationId, page = 1, limit = 20) {
         const skip = (page - 1) * limit;
         
-        // Sắp xếp -1 (Mới nhất lên trước) để phân trang chính xác từ dưới lên
         const messages = await Message.find({ conversationId })
+            .populate('senderId', 'username avatar') // Kéo theo thông tin người gửi (Thay cho JOIN)
             .sort({ createdAt: -1 }) 
             .skip(skip)
             .limit(limit);
         
-        // Sau khi lấy được 1 cụm 20 tin nhắn, ta đảo ngược mảng lại 
-        // để Frontend hiển thị đúng chiều thời gian (từ trên xuống dưới)
         return {
             messages: messages.reverse(),
             currentPage: page,
-            hasMore: messages.length === limit // Nếu trả về đúng 20 tin, nghĩa là có thể còn trang sau
+            hasMore: messages.length === limit
         };
     }
 
+
+    // 4. LẤY DANH SÁCH CUỘC HỘI THOẠI CỦA USER
     async getUserConversations(currentUserId) {
-        const user = await User.findByPk(currentUserId, {
-            include: [{
-                model: Conversation,
-                as: 'conversations',
-                include: [{
-                    model: User,
-                    as: 'members',
-                    attributes: ['id', 'username', 'fullName', 'avatar', 'status'],
-                    through: { attributes: [] }
-                }]
-            }],
-            order: [[{ model: Conversation, as: 'conversations' }, 'updatedAt', 'DESC']]
-        });
+        // Thay vì truy vấn từ User -> Include lồng nhau phức tạp, 
+        // ta truy vấn thẳng vào Conversation chứa currentUserId
+        const conversations = await Conversation.find({ 'members.user': currentUserId })
+            .populate('members.user', 'username fullName avatar status') // Lấy info thành viên
+            .populate('latestMessage') // Lấy info tin nhắn cuối cùng
+            .sort({ updatedAt: -1 }) // Chat nào mới tương tác đẩy lên đầu
+            .lean(); // .lean() giúp trả về JS Object thuần (tăng tốc độ xử lý)
 
-        if (!user || !user.conversations) return [];
+        if (!conversations || conversations.length === 0) return [];
 
-        return user.conversations.map(conv => {
-            const c = conv.get({ plain: true });
-
+        return conversations.map(c => {
             if (c.type === 'private') {
-                const partner = c.members.find(m => m.id !== currentUserId);
-                if (partner) {
+                // Lọc tìm người đối diện (partner) trong cuộc trò chuyện private
+                const partnerMember = c.members.find(m => m.user._id.toString() !== currentUserId.toString());
+                
+                if (partnerMember && partnerMember.user) {
+                    const partner = partnerMember.user;
                     c.name = partner.fullName || partner.username;
                     c.avatar = partner.avatar;
                     c.isOnline = partner.status === 'online';
                 }
             }
-
             return c;
         });
     }
 
-    async addOrUpdateReaction(messageId, userId, type) {
-        // 1. Kiểm tra xem user đã thả cảm xúc vào tin nhắn này chưa
-        const existingReaction = await Reaction.findOne({ messageId, userId });
 
-        if (existingReaction) {
-            if (existingReaction.type === type) {
-                // Kịch bản A: Bấm lại cảm xúc cũ -> Hủy (Xóa khỏi DB)
-                await Reaction.deleteOne({ _id: existingReaction._id });
+    // 5. THÊM HOẶC CẬP NHẬT REACTION VÀO MẢNG
+    async addOrUpdateReaction(messageId, userId, type) {
+        const message = await Message.findById(messageId);
+        if (!message) throw new Error("Tin nhắn không tồn tại!");
+
+        // 1. Tìm xem user đã thả cảm xúc vào tin nhắn này chưa (Duyệt mảng trực tiếp)
+        const existingReactionIndex = message.reactions.findIndex(
+            r => r.userId.toString() === userId.toString()
+        );
+
+        if (existingReactionIndex !== -1) {
+            if (message.reactions[existingReactionIndex].type === type) {
+                // Kịch bản A: Bấm lại cảm xúc cũ -> Hủy (Xóa khỏi mảng)
+                message.reactions.splice(existingReactionIndex, 1);
             } else {
-                // Kịch bản B: Đổi cảm xúc khác -> Cập nhật type mới
-                existingReaction.type = type;
-                await existingReaction.save();
+                // Kịch bản B: Đổi cảm xúc khác -> Cập nhật trực tiếp phần tử trong mảng
+                message.reactions[existingReactionIndex].type = type;
             }
         } else {
-            // Kịch bản C: Chưa từng thả -> Tạo bản ghi mới
-            await Reaction.create({ messageId, userId, type });
+            // Kịch bản C: Chưa từng thả -> Push bản ghi mới vào mảng
+            message.reactions.push({ userId, type });
         }
 
-        // 2. Lấy toàn bộ danh sách cảm xúc mới nhất của tin nhắn này
-        const updatedReactions = await Reaction.find({ messageId }).lean();
-        
-        // Trả về mảng để Socket phát đi
-        return updatedReactions; 
+        await message.save();
+
+        // Trả về mảng reactions mới nhất để Socket.io phát đi cho client
+        return message.reactions; 
     }
 }
 

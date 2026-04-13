@@ -1,25 +1,19 @@
-'use strict';
-const { Model } = require('sequelize');
+// models/FileUpload.js
+const mongoose = require('mongoose');
 
-module.exports = (sequelize, DataTypes) => {
-  class FileUpload extends Model {
-    static associate(models) {
-      FileUpload.belongsTo(models.User, { foreignKey: 'uploaderId', as: 'uploader' });
-    }
-  }
-  FileUpload.init({
-    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
-    uploaderId: { type: DataTypes.UUID, allowNull: false },
-    fileName: { type: DataTypes.STRING, allowNull: false },
-    fileUrl: { type: DataTypes.STRING, allowNull: false },
-    fileType: { type: DataTypes.ENUM('image', 'video', 'doc', 'file'), allowNull: false },
-    size: { type: DataTypes.FLOAT, allowNull: false }
-  }, {
-    sequelize,
-    modelName: 'FileUpload',
-    tableName: 'FileUploads',
-    timestamps: true,
-    updatedAt: false
-  });
-  return FileUpload;
-};
+const fileUploadSchema = new mongoose.Schema({
+  uploaderId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  
+  // MỞ KHÓA 2 TRƯỜNG NÀY NGAY NHÉ!
+  messageId: { type: mongoose.Schema.Types.ObjectId, ref: 'Message', required: true },
+  conversationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Conversation', required: true },
+
+  fileName: { type: String, required: true },
+  fileUrl: { type: String, required: true },
+  fileType: { type: String, enum: ['image', 'video', 'doc', 'file'], required: true },
+  size: { type: Number, default: 0 } // Đặt default 0 cho an toàn nếu Frontend quên gửi size
+}, {
+  timestamps: true 
+});
+
+module.exports = mongoose.model('FileUpload', fileUploadSchema);

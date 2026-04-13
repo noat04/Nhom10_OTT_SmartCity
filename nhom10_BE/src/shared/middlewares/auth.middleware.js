@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const { User } = require('../../../models'); // Đường dẫn trỏ đến file models/index.js (thay đổi số lượng ../ cho đúng với thư mục máy bạn)
+const  User  = require('../../../models/user'); // Đường dẫn trỏ đến file models/index.js (thay đổi số lượng ../ cho đúng với thư mục máy bạn)
 
 /**
  * Middleware xác thực Token
@@ -22,7 +22,8 @@ const verifyToken = async (req, res, next) => {
         const decoded = jwt.verify(token, process.env.JWT_SECRET || 'SmartCity_Nhom10_Secret_Key_2026');
 
         // 4. [QUAN TRỌNG] Truy vấn CSDL để lấy thông tin mới nhất của User
-        const user = await User.findByPk(decoded.id);
+        // DÒNG ĐÃ SỬA (Chuẩn Mongoose):
+        const user = await User.findById(decoded.id);
 
         if (!user) {
             return res.status(404).json({
@@ -38,6 +39,7 @@ const verifyToken = async (req, res, next) => {
         // 6. Cho phép đi tiếp vào Controller
         next();
     } catch (error) {
+        console.error(error);
         return res.status(403).json({
             success: false,
             message: "Phiên đăng nhập hết hạn hoặc thẻ không hợp lệ!"
