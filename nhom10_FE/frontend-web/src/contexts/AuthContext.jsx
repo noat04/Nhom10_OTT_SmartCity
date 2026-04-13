@@ -1,6 +1,6 @@
 // src/contexts/AuthContext.jsx
 import React, { createContext, useContext, useState, useEffect } from 'react';
-
+import { disconnectSocket } from '../hooks/useConnect';
 // 1. Khởi tạo Context
 const AuthContext = createContext(null);
 
@@ -39,9 +39,13 @@ export const AuthProvider = ({ children }) => {
 
   // Hàm xử lý Đăng xuất
   const logout = () => {
+    // 1. TẮT CẦU DAO SOCKET NGAY LẬP TỨC
+    disconnectSocket();
     setUser(null);
-    localStorage.removeItem('user');
+    localStorage.removeItem('auth');
     localStorage.removeItem('token');
+    localStorage.removeItem('user');
+   
     // Lưu ý: Việc chuyển hướng (redirect) về trang /login thường sẽ do 
     // component gọi hàm logout xử lý (dùng useNavigate của react-router-dom)
   };

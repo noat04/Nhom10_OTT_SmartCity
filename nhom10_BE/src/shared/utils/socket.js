@@ -130,7 +130,59 @@ module.exports = {
                     console.error("Lỗi seen:", error);
                 }
             });
+
+            // 7. XỬ LÝ THẢ CẢM XÚC (REACTION)
+            socket.on("react_message", async ({ conversationId, messageId, type }) => {
+                try {
+                    const userId = socket.user.id || socket.user._id;
+
+                    // Gọi Service để xử lý logic (Thêm/Sửa/Xóa reaction vào Database)
+                    const updatedReactions = await chatService.addOrUpdateReaction(messageId, userId, type);
+
+                    // 👉 Đổi "reactions_updated" thành "message_reacted" cho khớp với Frontend
+                    io.to(conversationId).emit("message_reacted", {
+                        messageId: messageId,
+                        reactions: updatedReactions
+                    });
+
+                } catch (error) {
+                    console.error("Lỗi khi thả cảm xúc:", error);
+                }
+            });
+
+            // 6. SỰ KIỆN NGẮT KẾT NỐI (Khi user tắt tab hoặc bấm Đăng xuất)
+            socket.on('disconnect', async () => {
+                console.log(`❌ Client disconnected: ${socket.id} - User ID: ${userId}`);
+                
+                try {
+                    // 1. Nếu bạn đang dùng biến onlineUsers (Map), phải xóa nó đi:
+                    if (onlineUsers && onlineUsers.has(userId)) {
+                        onlineUsers.delete(userId);
+                        // Báo cho mọi người biết danh sách online mới
+                        io.emit("updateOnlineUsers", Array.from(onlineUsers.keys()));
+                    }
+
+                    // 2. Cập nhật Database MySQL thành Offline
+                    const currentTime = new Date();
+                    await User.update(
+                        { status: 'offline', lastSeen: currentTime }, 
+                        { where: { id: userId } }
+                    );
+
+                    // 3. Phát sóng trạng thái Offline cho mọi người (để tắt chấm xanh)
+                    socket.broadcast.emit('user_status_changed', { 
+                        userId: userId, 
+                        status: 'offline',
+                        lastSeen: currentTime
+                    });
+                } catch (error) {
+                    console.error("Lỗi cập nhật trạng thái Offline:", error);
+                }
+            });
+           
         });
+
+        
         return io;
     },
     getIO: () => {

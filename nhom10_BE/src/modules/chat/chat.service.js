@@ -1,5 +1,6 @@
 const { Conversation, ConversationMember, User, Sequelize } = require('../../../models');
 const Message = require('../../../models/message');
+const Reaction = require('../../../models/reaction'); // Đường dẫn trỏ tới model Reaction của bạn
 
 const { Op } = Sequelize;
 
@@ -112,6 +113,31 @@ class ChatService {
 
             return c;
         });
+    }
+
+    async addOrUpdateReaction(messageId, userId, type) {
+        // 1. Kiểm tra xem user đã thả cảm xúc vào tin nhắn này chưa
+        const existingReaction = await Reaction.findOne({ messageId, userId });
+
+        if (existingReaction) {
+            if (existingReaction.type === type) {
+                // Kịch bản A: Bấm lại cảm xúc cũ -> Hủy (Xóa khỏi DB)
+                await Reaction.deleteOne({ _id: existingReaction._id });
+            } else {
+                // Kịch bản B: Đổi cảm xúc khác -> Cập nhật type mới
+                existingReaction.type = type;
+                await existingReaction.save();
+            }
+        } else {
+            // Kịch bản C: Chưa từng thả -> Tạo bản ghi mới
+            await Reaction.create({ messageId, userId, type });
+        }
+
+        // 2. Lấy toàn bộ danh sách cảm xúc mới nhất của tin nhắn này
+        const updatedReactions = await Reaction.find({ messageId }).lean();
+        
+        // Trả về mảng để Socket phát đi
+        return updatedReactions; 
     }
 }
 

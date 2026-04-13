@@ -109,6 +109,7 @@ class ChatController {
             res.status(500).json({ success: false, message: "Lỗi server" });
         }
     }
+    
 }
 
 module.exports = new ChatController();

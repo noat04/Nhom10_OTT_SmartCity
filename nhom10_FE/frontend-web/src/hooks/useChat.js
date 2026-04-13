@@ -4,7 +4,7 @@ import { io } from 'socket.io-client';
 const SOCKET_SERVER_URL = 'http://localhost:3000';
 let socket;
 
-export const useChat = (conversationId, currentUserId, onNewMessage, onTyping, onSeen) => {
+export const useChat = (conversationId, currentUserId, onNewMessage, onTyping, onSeen,onMessageReacted) => {
 
   useEffect(() => {
     if (!conversationId) return;
@@ -31,6 +31,15 @@ export const useChat = (conversationId, currentUserId, onNewMessage, onTyping, o
 
     socket.on('newMessage', handleNewMessage);
 
+    // ==========================================
+    // 🔥 [MỚI] LẮNG NGHE SỰ KIỆN CÓ NGƯỜI THẢ TIM
+    // ==========================================
+    const handleMessageReacted = (data) => {
+       // data từ Backend trả về có dạng: { messageId: '...', reactions: [...] }
+       onMessageReacted?.(data);
+    };
+    socket.on('message_reacted', handleMessageReacted);
+
     // 🔥 typing
     socket.on('typing', (data) => {
       if (data.conversationId === conversationId) {
@@ -42,8 +51,9 @@ export const useChat = (conversationId, currentUserId, onNewMessage, onTyping, o
       socket.emit('leaveConversation', conversationId);
       socket.off('newMessage', handleNewMessage);
       socket.off('typing');
+      socket.off('message_reacted', handleMessageReacted); 
     };
-  }, [conversationId]);
+  }, [conversationId,onMessageReacted,onNewMessage,onTyping,onSeen]);
 
   // emit typing
   const emitTyping = (typingStatus) => {
@@ -53,6 +63,16 @@ export const useChat = (conversationId, currentUserId, onNewMessage, onTyping, o
   // emit seen
   const emitSeen = () => {
     socket?.emit('seen', { conversationId });
+  };
+  
+  //emit reaction
+  const emitReaction = (messageId, reactionType) => {
+    // Sửa tên sự kiện thành 'react_message' và đổi 'emoji' thành 'type' cho khớp Backend
+    socket?.emit('react_message', { 
+        conversationId, 
+        messageId, 
+        type: reactionType 
+    });
   };
 
   // 🔥 Xử lý nhận sự kiện SEEN từ server
@@ -72,5 +92,5 @@ export const useChat = (conversationId, currentUserId, onNewMessage, onTyping, o
     };
   }, [conversationId]);
 
-  return { emitTyping, emitSeen };
+  return { emitTyping, emitSeen, emitReaction };
 };

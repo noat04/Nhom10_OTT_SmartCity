@@ -8,6 +8,7 @@
 
 // Nút Thông tin (Info / Sidebar Right): Mở thêm một panel bên phải để xem file/ảnh đã chia sẻ hoặc danh sách thành viên nhóm.
 
+// src/components/chat/ChatHeader.jsx
 import React from 'react';
 
 const ChatHeader = ({
@@ -15,41 +16,49 @@ const ChatHeader = ({
   avatar = "https://via.placeholder.com/150",
   isOnline = false,
   isGroup = false,
-  statusText = "", // Truyền vào "Truy cập 5 phút trước", hoặc "10 thành viên" nếu là nhóm
+  statusText = "", 
   onAudioCall,
   onVideoCall,
-  onToggleInfo
+  onToggleInfo,
+  onClose // 👉 Nhận thêm hàm onClose
 }) => {
   return (
     <div className="flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200">
       
       {/* 1. THÔNG TIN NGƯỜI DÙNG / NHÓM */}
-      <div className="flex items-center cursor-pointer" onClick={onToggleInfo}>
-        <div className="relative">
+      <div className="flex items-center">
+        
+        {/* 👉 Nút Back (Chỉ hiện trên Mobile) */}
+        {onClose && (
+          <button onClick={onClose} className="mr-3 p-2 text-gray-500 hover:bg-gray-100 rounded-full md:hidden">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+        )}
+
+        <div className="relative cursor-pointer" onClick={onToggleInfo}>
           <img
             src={avatar}
             alt={name}
             className="w-10 h-10 rounded-full object-cover border border-gray-200"
           />
-          {/* Dấu chấm Online (chỉ hiện khi là chat 1-1 và đang online) */}
+          {/* Dấu chấm Online */}
           {!isGroup && isOnline && (
             <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></span>
           )}
         </div>
 
-        <div className="ml-3">
+        <div className="ml-3 cursor-pointer" onClick={onToggleInfo}>
           <h2 className="text-base font-semibold text-gray-900 leading-tight">
             {name}
           </h2>
           <p className="text-xs text-gray-500">
             {isGroup ? (
-              // Nếu là nhóm, ưu tiên hiển thị số lượng thành viên
               <span>{statusText || "Nhóm chat"}</span>
             ) : isOnline ? (
-              // Nếu chat 1-1 và đang online
               <span className="text-green-600 font-medium">Đang hoạt động</span>
             ) : (
-              // Nếu chat 1-1 và đang offline
               <span>{statusText || "Ngoại tuyến"}</span>
             )}
           </p>

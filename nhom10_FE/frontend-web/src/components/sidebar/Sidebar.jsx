@@ -4,7 +4,7 @@ import Avatar from '../common/Avatar';
 import ConversationList from './ConversationList';
 import SearchBar from './SearchBar';
 import { useAuth } from "../../contexts/AuthContext";
-import { useConversations } from '../../hooks/useConversations'; // Import Custom Hook
+import { useConversations, disconnectSocket } from '../../hooks/useConversations'; // Import Custom Hook
 
 const Sidebar = ({ 
   activeConversationId, 
@@ -15,7 +15,7 @@ const Sidebar = ({
   const { user, logout } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   
-  // 💡 Lấy dữ liệu và trạng thái từ Custom Hook (Chỉ cần 1 dòng!)
+  // 💡 Lấy dữ liệu và trạng thái từ Custom Hook
   const { conversations, isLoading } = useConversations();
 
   // Logic lọc danh sách theo từ khóa tìm kiếm
@@ -23,6 +23,12 @@ const Sidebar = ({
     const nameToSearch = conv.name || conv.fullName || conv.username || '';
     return nameToSearch.toLowerCase().includes(searchTerm.toLowerCase());
   });
+
+  // 👉 HÀM XỬ LÝ ĐĂNG XUẤT MỚI
+  const handleLogout = () => {
+    disconnectSocket(); // 1. Bóp cò ngắt kết nối Socket.io để xóa "bóng ma"
+    logout();           // 2. Chạy hàm logout gốc (Xóa token, chuyển trang...)
+  };
 
   return (
     <div className="flex flex-col w-80 border-r border-gray-200 bg-white h-full shrink-0">
@@ -54,8 +60,9 @@ const Sidebar = ({
           </button>
         </div>
 
+        {/* 👉 Sửa sự kiện onClick ở nút Đăng xuất thành handleLogout */}
         <button 
-          onClick={logout} 
+          onClick={handleLogout} 
           className="w-full flex items-center justify-center gap-2 text-sm text-red-500 bg-white border border-red-100 hover:bg-red-50 hover:border-red-200 py-1.5 rounded-lg font-medium transition-colors"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
