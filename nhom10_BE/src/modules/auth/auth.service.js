@@ -1,187 +1,191 @@
-<<<<<<< HEAD
-const { User } = require('../../../models');
-=======
-const User = require('../../../models/user'); // Nên viết hoa chữ U cho chuẩn tên file
->>>>>>> toan
-const bcrypt = require('bcryptjs');
+const User = require('../../../models/user');
+const OTP = require('./otp.model');
+
+const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
-// 👉 import hàm gửi mail (bạn phải tạo file mailer.js trước)
+const { generateOTP } = require('../../shared/utils/otp');
 const { sendOTP } = require('../../shared/utils/mailer');
+const {
+    isValidEmail,
+    checkDomain,
+    isDisposable
+} = require('../../shared/utils/emailValidator');
 
 class AuthService {
 
-    // 🔥 TẠO OTP
-    generateOTP() {
-        return Math.floor(100000 + Math.random() * 900000).toString();
+    // ================= VALIDATE EMAIL =================
+    async validateEmail(email) {
+        if (!isValidEmail(email)) {
+            throw new Error("Email không hợp lệ");
+        }
+
+        if (isDisposable(email)) {
+            throw new Error("Không chấp nhận email tạm");
+        }
+
+        const isDomainValid = await checkDomain(email);
+        if (!isDomainValid) {
+            throw new Error("Domain email không tồn tại");
+        }
     }
 
     // ================= REGISTER =================
-    async register(data) {
-        const { username, email, password, fullName } = data;
+    async sendOTPRegister(email) {
+        if (!email) throw new Error("Thiếu email");
 
-<<<<<<< HEAD
-        // 1. Check email tồn tại
-        const existingUser = await User.findOne({ where: { email } });
-=======
-        // 1. SỬA: Xóa chữ 'where'. Truyền thẳng { email } hoặc { username }
-        const existingUser = await User.findOne({ 
-            $or: [{ email }, { username }] // Nên check trùng cả email lẫn username
-        });
-        
->>>>>>> toan
-        if (existingUser) {
-            throw new Error('Email hoặc Username này đã được sử dụng!');
+        await this.validateEmail(email);
+
+        // 🔥 CHẶN EMAIL ĐÃ TỒN TẠI NGAY TỪ ĐÂY
+        const existEmail = await User.findOne({ email });
+        if (existEmail) {
+            throw new Error("Email đã được sử dụng");
         }
 
-        // 2. Hash password
+        const otp = generateOTP();
+
+        await OTP.deleteMany({ email }); // tránh spam
+
+        await OTP.create({
+            email,
+            otp,
+            expiresAt: new Date(Date.now() + 5 * 60 * 1000)
+        });
+
+        await sendOTP(email, otp);
+
+        return { success: true, message: "OTP đã gửi" };
+    }
+
+    async verifyRegister(data) {
+        const { email, otp, password, username, fullName, phone } = data;
+
+        const record = await OTP.findOne({ email, otp });
+
+        if (!record) throw new Error("OTP không đúng");
+        if (record.expiresAt < new Date()) throw new Error("OTP hết hạn");
+
+        const existEmail = await User.findOne({ email });
+        if (existEmail) throw new Error("Email đã tồn tại");
+
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        // 3. Tạo OTP
-        const otp = this.generateOTP();
-
-        // 4. Tạo user (chưa verify)
-        const newUser = await User.create({
-            username,
+        const user = await User.create({
             email,
             password: hashedPassword,
+            username,
             fullName,
-            status: 'offline',
-            otp,
-            otpExpires: new Date(Date.now() + 5 * 60 * 1000), // 5 phút
-            isVerified: false
+            phone: phone || "",
+            status: "offline"
         });
 
-        // 5. Gửi OTP (nếu chưa làm mail thì console.log)
-        try {
-            await sendOTP(email, otp);
-        } catch (err) {
-            console.log("OTP (dev):", otp); // fallback dev
-        }
+        await OTP.deleteMany({ email });
 
-        return {
-<<<<<<< HEAD
-            message: "Đăng ký thành công! Vui lòng nhập OTP để xác thực",
-            email: newUser.email
-        };
-    }
-
-    // ================= VERIFY OTP =================
-    async verifyOTP(email, otp) {
-        const user = await User.findOne({ where: { email } });
-
-        if (!user) {
-            throw new Error("User không tồn tại");
-        }
-
-        if (user.isVerified) {
-            throw new Error("Tài khoản đã xác thực rồi");
-        }
-
-        if (user.otp !== otp) {
-            throw new Error("OTP không đúng");
-        }
-
-        if (new Date() > user.otpExpires) {
-            throw new Error("OTP đã hết hạn");
-        }
-
-        // cập nhật
-        user.isVerified = true;
-        user.otp = null;
-        user.otpExpires = null;
-
-        await user.save();
-
-        return {
-            message: "Xác thực OTP thành công!"
-        };
-    }
-
-    // ================= RESEND OTP =================
-    async resendOTP(email) {
-        const user = await User.findOne({ where: { email } });
-
-        if (!user) throw new Error("User không tồn tại");
-
-        if (user.isVerified) {
-            throw new Error("Tài khoản đã xác thực");
-        }
-
-        const otp = this.generateOTP();
-
-        user.otp = otp;
-        user.otpExpires = new Date(Date.now() + 5 * 60 * 1000);
-
-        await user.save();
-
-        try {
-            await sendOTP(email, otp);
-        } catch (err) {
-            console.log("OTP (dev):", otp);
-        }
-
-        return {
-            message: "OTP mới đã được gửi"
-        };
+        return { success: true, user };
     }
 
     // ================= LOGIN =================
-    async login(email, password) {
-
-        const user = await User.findOne({ where: { email } });
-
-=======
-            id: newUser._id, // Mongoose lưu ID ở trường _id
-            email: newUser.email,
-            username: newUser.username
-        };
-    }
-
-    // Đăng nhập
-    async login(email, password) {
-        // 2. SỬA: Bỏ 'where' VÀ thêm .select('+password') để lấy mật khẩu ra đối chiếu
+    async sendOTPLogin(email, password) {
         const user = await User.findOne({ email }).select('+password');
-        
->>>>>>> toan
-        if (!user) {
-            throw new Error('Email không tồn tại!');
-        }
 
-        // 🔒 CHẶN CHƯA VERIFY
-        if (!user.isVerified) {
-            throw new Error("Tài khoản chưa xác thực OTP!");
+        if (!user) throw new Error("Email không tồn tại");
+
+        if (user.status === "online") {
+            throw new Error("Tài khoản đang đăng nhập ở thiết bị khác");
         }
 
         const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) throw new Error("Sai mật khẩu");
 
-        if (!isMatch) {
-            throw new Error('Mật khẩu không chính xác!');
-        }
+        const otp = generateOTP();
+
+        await OTP.deleteMany({ email });
+
+        await OTP.create({
+            email,
+            otp,
+            expiresAt: new Date(Date.now() + 5 * 60 * 1000)
+        });
+
+        await sendOTP(email, otp);
+
+        return { success: true };
+    }
+
+    async verifyLogin(email, otp) {
+        const record = await OTP.findOne({ email, otp });
+
+        if (!record) throw new Error("OTP sai");
+        if (record.expiresAt < new Date()) throw new Error("OTP hết hạn");
+
+        const user = await User.findOne({ email });
+
+        user.status = "online";
+        await user.save();
 
         const token = jwt.sign(
-<<<<<<< HEAD
-            { id: user.id, email: user.email },
-            process.env.JWT_SECRET || 'Secret_Key_Mac_Dinh',
-=======
-            { id: user._id, email: user.email }, // Dùng user._id cho chuẩn MongoDB
-            process.env.JWT_SECRET || 'SmartCity_Nhom10_Secret_Key_2026', 
->>>>>>> toan
-            { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+            { id: user._id },
+            process.env.JWT_SECRET,
+            { expiresIn: '1d' }
         );
 
-        // Chuẩn bị data trả về (không trả về password)
-        return {
-            token,
-            user: {
-                id: user._id,
-                username: user.username,
-                email: user.email,
-                fullName: user.fullName,
-                avatar: user.avatar,
-                status: user.status
-            }
-        };
+        await OTP.deleteMany({ email });
+
+        return { success: true, token };
+    }
+
+    // ================= LOGOUT =================
+    async logout(userId) {
+        const user = await User.findById(userId);
+        user.status = "offline";
+        await user.save();
+
+        return { success: true };
+    }
+
+    // ================= FORGOT PASSWORD =================
+    async sendOTPReset(email) {
+        await this.validateEmail(email);
+
+        const user = await User.findOne({ email });
+        if (!user) throw new Error("Email không tồn tại");
+
+        const otp = generateOTP();
+
+        await OTP.deleteMany({ email });
+
+        await OTP.create({
+            email,
+            otp,
+            expiresAt: new Date(Date.now() + 5 * 60 * 1000)
+        });
+
+        await sendOTP(email, otp, "OTP đặt lại mật khẩu");
+
+        return { success: true };
+    }
+
+    async verifyOTPReset(email, otp) {
+        const record = await OTP.findOne({ email, otp });
+
+        if (!record) throw new Error("OTP không đúng");
+        if (record.expiresAt < new Date()) throw new Error("OTP hết hạn");
+
+        return { success: true };
+    }
+
+    async resetPassword(email, otp, newPassword) {
+        const record = await OTP.findOne({ email, otp });
+
+        if (!record) throw new Error("OTP không đúng");
+
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+        await User.updateOne({ email }, { password: hashedPassword });
+
+        await OTP.deleteMany({ email });
+
+        return { success: true };
     }
 }
 

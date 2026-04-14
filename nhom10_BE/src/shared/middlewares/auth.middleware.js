@@ -1,25 +1,26 @@
 const jwt = require('jsonwebtoken');
-<<<<<<< HEAD
-const User = require('../../modules/auth/user.model');
-=======
-const  User  = require('../../../models/user'); // Đường dẫn trỏ đến file models/index.js (thay đổi số lượng ../ cho đúng với thư mục máy bạn)
->>>>>>> toan
+const User = require('../../../models/user');
 
 const verifyToken = async (req, res, next) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
+        const authHeader = req.headers.authorization;
 
-        if (!token) {
+        if (!authHeader) {
             return res.status(401).json({ message: "Chưa đăng nhập" });
         }
 
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const token = authHeader.split(' ')[1];
 
-<<<<<<< HEAD
-=======
-        // 4. [QUAN TRỌNG] Truy vấn CSDL để lấy thông tin mới nhất của User
-        // DÒNG ĐÃ SỬA (Chuẩn Mongoose):
->>>>>>> toan
+        if (!token) {
+            return res.status(401).json({ message: "Token không hợp lệ" });
+        }
+
+        // 🔥 FIX QUAN TRỌNG
+        const decoded = jwt.verify(
+            token,
+            process.env.JWT_SECRET || "SmartCity_Nhom10_Secret_Key_2026"
+        );
+
         const user = await User.findById(decoded.id);
 
         if (!user) {
@@ -27,19 +28,14 @@ const verifyToken = async (req, res, next) => {
         }
 
         req.user = user;
-
         next();
-<<<<<<< HEAD
-    } catch (err) {
-        res.status(403).json({ message: "Token không hợp lệ" });
-=======
+
     } catch (error) {
-        console.error(error);
+        console.error("VERIFY TOKEN ERROR:", error);
         return res.status(403).json({
             success: false,
-            message: "Phiên đăng nhập hết hạn hoặc thẻ không hợp lệ!"
+            message: "Phiên đăng nhập hết hạn!"
         });
->>>>>>> toan
     }
 };
 
