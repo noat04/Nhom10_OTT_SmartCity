@@ -1,84 +1,72 @@
 #!/usr/bin/env node
 require('dotenv').config();
-// ... các dòng require khác bên dưới
+
 /**
  * Module dependencies.
  */
-var app = require('../src/app');
-var debug = require('debug')('nhom10-be:server');
-var http = require('http');
+const app = require('../src/app');
+const debug = require('debug')('nhom10-be:server');
+const http = require('http');
 
 // Nhúng thêm các thư viện cần thiết cho dự án
-const { Server } = require('socket.io');
 const mongoose = require('mongoose');
-const db = require('../models'); // Thư mục models của Sequelize (MySQL)
-const socketUtil = require('../src/shared/utils/socket'); // Đường dẫn tới file socket.js
+const socketUtil = require('../src/shared/utils/socket'); 
+
+// XÓA: const db = require('../models'); (Không còn dùng MySQL/Sequelize nữa)
+// XÓA: const { Server } = require('socket.io'); (Đã được xử lý bên trong socketUtil)
 
 /**
  * Get port from environment and store in Express.
  */
-var port = normalizePort(process.env.PORT || '3000');
+const port = normalizePort(process.env.PORT || '3000');
 app.set('port', port);
 
 /**
  * Create HTTP server.
  */
-var server = http.createServer(app);
-
-// Khởi tạo Socket.io
-socketUtil.init(server);
+const server = http.createServer(app);
 
 // ==========================================
-// 1. KẾT NỐI DATABASE (MySQL & MongoDB)
+// 1. KẾT NỐI DATABASE (Hoàn toàn bằng MongoDB Atlas)
 // ==========================================
 
-// Kết nối MongoDB (Lưu trữ lịch sử tin nhắn)
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/smartcity_chat';
+// Lấy chuỗi kết nối từ file .env
+const MONGO_URI = process.env.MONGO_URI;
+
+if (!MONGO_URI) {
+    console.error('❌ Lỗi nghiêm trọng: Chưa cấu hình MONGO_URI trong file .env');
+    process.exit(1); // Dừng app ngay lập tức nếu thiếu chuỗi kết nối
+}
+
 mongoose.connect(MONGO_URI)
-    .then(() => console.log('✅ Đã kết nối MongoDB thành công!'))
-    .catch(err => console.error('❌ Lỗi kết nối MongoDB:', err));
+    .then(() => {
+        console.log('✅ Đã kết nối MongoDB Atlas thành công!');
 
-// Kết nối MySQL (Quản lý User, Nhóm, Phản ánh)
-db.sequelize.authenticate()
-    .then(() => console.log('✅ Đã kết nối MySQL thành công!'))
-    .catch(err => console.error('❌ Lỗi kết nối MySQL:', err));
+        // ==========================================
+        // 2. KHỞI TẠO SOCKET.IO (Chat thời gian thực)
+        // ==========================================
+        socketUtil.init(server);
+        console.log('✅ Đã khởi tạo Socket.IO thành công!');
 
-// ==========================================
-// 2. KHỞI TẠO SOCKET.IO (Chat thời gian thực)
-// ==========================================
-const io = new Server(server, {
-  cors: {
-    origin: "*", // Cho phép App React Native kết nối
-    methods: ["GET", "POST"]
-  }
-});
+        // ==========================================
+        // 3. KHỞI CHẠY SERVER
+        // ==========================================
+        // Chỉ lắng nghe port khi DB đã kết nối thành công
+        server.listen(port);
+        server.on('error', onError);
+        server.on('listening', onListening);
+    })
+    .catch(err => {
+        console.error('❌ Lỗi kết nối MongoDB Atlas:', err.message);
+        process.exit(1); // Dừng app nếu không thể kết nối DB
+    });
 
-// Lắng nghe các sự kiện kết nối từ Client
-io.on('connection', (socket) => {
-  console.log(`🔌 Người dùng vừa kết nối Socket. ID: ${socket.id}`);
-
-  // Khi người dùng ngắt kết nối (tắt app)
-  socket.on('disconnect', () => {
-    console.log(`🔌 Người dùng ngắt kết nối. ID: ${socket.id}`);
-  });
-});
-
-// Lưu biến `io` vào `app` để sau này các Controller có thể lấy ra dùng
-// (Ví dụ: Để gửi thông báo khi có phản ánh mới)
-app.set('io', io);
-
-/**
- * Listen on provided port, on all network interfaces.
- */
-server.listen(port);
-server.on('error', onError);
-server.on('listening', onListening);
 
 /**
  * Normalize a port into a number, string, or false.
  */
 function normalizePort(val) {
-  var port = parseInt(val, 10);
+  const port = parseInt(val, 10);
 
   if (isNaN(port)) {
     // named pipe
@@ -101,7 +89,7 @@ function onError(error) {
     throw error;
   }
 
-  var bind = typeof port === 'string'
+  const bind = typeof port === 'string'
       ? 'Pipe ' + port
       : 'Port ' + port;
 
@@ -124,8 +112,8 @@ function onError(error) {
  * Event listener for HTTP server "listening" event.
  */
 function onListening() {
-  var addr = server.address();
-  var bind = typeof addr === 'string'
+  const addr = server.address();
+  const bind = typeof addr === 'string'
       ? 'pipe ' + addr
       : 'port ' + addr.port;
   debug('Listening on ' + bind);

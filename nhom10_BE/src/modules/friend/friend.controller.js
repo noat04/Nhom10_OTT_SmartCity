@@ -1,5 +1,5 @@
-const { Friend, User, Sequelize } = require('../../../models');
-const { Op } = Sequelize;
+const Friend = require('../../../models/friend');
+const User = require('../../../models/user'); // Import trực tiếp Model
 
 class FriendController {
     // 1. Gửi yêu cầu kết bạn
@@ -8,18 +8,18 @@ class FriendController {
             const { receiverId } = req.body;
             const senderId = req.user.id;
 
-            if (senderId === receiverId) {
+            // 💡 QUAN TRỌNG: Thêm .toString() để so sánh chuẩn xác ObjectId
+            if (senderId.toString() === receiverId.toString()) {
                 return res.status(400).json({ success: false, message: "Không thể tự kết bạn với chính mình" });
             }
 
             // Kiểm tra xem đã từng gửi yêu cầu hoặc đã là bạn bè chưa
+            // Chuyển đổi [Op.or] của SQL sang $or của MongoDB
             const existingFriendship = await Friend.findOne({
-                where: {
-                    [Op.or]: [
-                        { userId: senderId, friendId: receiverId },
-                        { userId: receiverId, friendId: senderId }
-                    ]
-                }
+                $or: [
+                    { userId: senderId, friendId: receiverId },
+                    { userId: receiverId, friendId: senderId }
+                ]
             });
 
             if (existingFriendship) {
@@ -46,20 +46,22 @@ class FriendController {
             const { requestId } = req.params;
             const currentUserId = req.user.id;
 
-            const request = await Friend.findByPk(requestId);
+            // Đổi findByPk thành findById
+            const request = await Friend.findById(requestId);
 
             if (!request) {
                 return res.status(404).json({ success: false, message: "Không tìm thấy yêu cầu" });
             }
 
             // Đảm bảo chỉ người nhận mới được quyền chấp nhận
-            if (request.friendId !== currentUserId) {
+            // 💡 QUAN TRỌNG: Tiếp tục dùng .toString() ở đây
+            if (request.friendId.toString() !== currentUserId.toString()) {
                 return res.status(403).json({ success: false, message: "Bạn không có quyền thực hiện hành động này" });
             }
 
             // Cập nhật trạng thái
             request.status = 'accepted';
-            await request.save();
+            await request.save(); // Mongoose vẫn hỗ trợ hàm .save() hệt như Sequelize nên bạn giữ nguyên đoạn này được
 
             res.status(200).json({ success: true, message: "Đã trở thành bạn bè" });
         } catch (error) {

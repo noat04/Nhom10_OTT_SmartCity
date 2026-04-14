@@ -1,4 +1,9 @@
+<<<<<<< HEAD
 // auth.controller.js
+=======
+const authService = require('./auth.service');
+const  User  = require('../../../models/user');
+>>>>>>> toan
 
 const OTP = require('./otp.model');
 const User = require('./user.model.js');

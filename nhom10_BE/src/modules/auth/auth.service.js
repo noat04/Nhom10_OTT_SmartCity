@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 const { User } = require('../../../models');
+=======
+const User = require('../../../models/user'); // Nên viết hoa chữ U cho chuẩn tên file
+>>>>>>> toan
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
@@ -16,10 +20,18 @@ class AuthService {
     async register(data) {
         const { username, email, password, fullName } = data;
 
+<<<<<<< HEAD
         // 1. Check email tồn tại
         const existingUser = await User.findOne({ where: { email } });
+=======
+        // 1. SỬA: Xóa chữ 'where'. Truyền thẳng { email } hoặc { username }
+        const existingUser = await User.findOne({ 
+            $or: [{ email }, { username }] // Nên check trùng cả email lẫn username
+        });
+        
+>>>>>>> toan
         if (existingUser) {
-            throw new Error('Email này đã được sử dụng!');
+            throw new Error('Email hoặc Username này đã được sử dụng!');
         }
 
         // 2. Hash password
@@ -48,6 +60,7 @@ class AuthService {
         }
 
         return {
+<<<<<<< HEAD
             message: "Đăng ký thành công! Vui lòng nhập OTP để xác thực",
             email: newUser.email
         };
@@ -118,6 +131,19 @@ class AuthService {
 
         const user = await User.findOne({ where: { email } });
 
+=======
+            id: newUser._id, // Mongoose lưu ID ở trường _id
+            email: newUser.email,
+            username: newUser.username
+        };
+    }
+
+    // Đăng nhập
+    async login(email, password) {
+        // 2. SỬA: Bỏ 'where' VÀ thêm .select('+password') để lấy mật khẩu ra đối chiếu
+        const user = await User.findOne({ email }).select('+password');
+        
+>>>>>>> toan
         if (!user) {
             throw new Error('Email không tồn tại!');
         }
@@ -134,19 +160,26 @@ class AuthService {
         }
 
         const token = jwt.sign(
+<<<<<<< HEAD
             { id: user.id, email: user.email },
             process.env.JWT_SECRET || 'Secret_Key_Mac_Dinh',
+=======
+            { id: user._id, email: user.email }, // Dùng user._id cho chuẩn MongoDB
+            process.env.JWT_SECRET || 'SmartCity_Nhom10_Secret_Key_2026', 
+>>>>>>> toan
             { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
         );
 
+        // Chuẩn bị data trả về (không trả về password)
         return {
             token,
             user: {
-                id: user.id,
+                id: user._id,
                 username: user.username,
                 email: user.email,
                 fullName: user.fullName,
-                avatar: user.avatar
+                avatar: user.avatar,
+                status: user.status
             }
         };
     }
