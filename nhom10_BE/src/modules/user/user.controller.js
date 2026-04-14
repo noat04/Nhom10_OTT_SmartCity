@@ -1,20 +1,14 @@
 const User = require('../../../models/user');
 const userService = require('./user.service');
 
-const s3 = require('../../../config/s3');
-const { PutObjectCommand } = require("@aws-sdk/client-s3");
-
 class UserController {
 
-    // ================= SEARCH USERS =================
     async searchUsers(req, res) {
         try {
             const keyword = req.query.search;
             const currentUserId = req.user.id;
 
-            let condition = {
-                _id: { $ne: currentUserId }
-            };
+            let condition = { _id: { $ne: currentUserId } };
 
             if (keyword) {
                 condition.$or = [
@@ -31,14 +25,11 @@ class UserController {
             return res.json({ success: true, data: users });
 
         } catch (error) {
-            return res.status(500).json({
-                success: false,
-                message: "Lỗi tìm kiếm người dùng"
-            });
+            console.error("SEARCH ERROR:", error);
+            return res.status(500).json({ success: false, message: "Lỗi tìm kiếm" });
         }
     }
 
-    // ================= CHECK ONLINE =================
     async checkOnlineStatus(req, res) {
         try {
             const user = await User.findById(req.user.id).select('-password');
@@ -53,40 +44,32 @@ class UserController {
             return res.json({ success: true, data: user });
 
         } catch (error) {
-            return res.status(500).json({
-                success: false,
-                message: "Lỗi check online"
-            });
+            console.error(error);
+            return res.status(500).json({ success: false });
         }
     }
 
-    // ================= GET PROFILE =================
     async getProfile(req, res) {
         try {
             const result = await userService.getProfile(req.user.id);
             return res.json(result);
         } catch (err) {
-            return res.status(400).json({
-                success: false,
-                message: err.message
-            });
+            console.error(err);
+            return res.status(400).json({ success: false, message: err.message });
         }
     }
 
-    // ================= UPDATE PROFILE =================
     async updateProfile(req, res) {
         try {
             const result = await userService.updateProfile(req.user.id, req.body);
             return res.json(result);
         } catch (err) {
-            return res.status(400).json({
-                success: false,
-                message: err.message
-            });
+            console.error(err);
+            return res.status(400).json({ success: false, message: err.message });
         }
     }
 
-    // ================= UPDATE AVATAR =================
+    // 🔥 AVATAR
     async updateAvatar(req, res) {
         try {
             if (!req.file) {
@@ -96,35 +79,17 @@ class UserController {
                 });
             }
 
-            const file = req.file;
-
-            const key = `avatars/${Date.now()}-${file.originalname}`;
-
-            // 👉 upload lên S3
-            await s3.send(new PutObjectCommand({
-                Bucket: process.env.AWS_BUCKET_NAME,
-                Key: key,
-                Body: file.buffer,
-                ContentType: file.mimetype
-            }));
-
-            // 👉 tạo link
-            const avatarUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
-
-            const result = await userService.updateAvatar(req.user.id, avatarUrl);
+            const result = await userService.updateAvatar(req.user.id, req.file);
 
             return res.json(result);
 
         } catch (err) {
-            console.error(err);
-            return res.status(500).json({
-                success: false,
-                message: err.message
-            });
+            console.error("AVATAR ERROR:", err);
+            return res.status(500).json({ success: false, message: err.message });
         }
     }
 
-    // ================= UPDATE COVER =================
+    // 🔥 COVER
     async updateCover(req, res) {
         try {
             if (!req.file) {
@@ -134,29 +99,13 @@ class UserController {
                 });
             }
 
-            const file = req.file;
-
-            const key = `covers/${Date.now()}-${file.originalname}`;
-
-            await s3.send(new PutObjectCommand({
-                Bucket: process.env.AWS_BUCKET_NAME,
-                Key: key,
-                Body: file.buffer,
-                ContentType: file.mimetype
-            }));
-
-            const coverUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
-
-            const result = await userService.updateCover(req.user.id, coverUrl);
+            const result = await userService.updateCover(req.user.id, req.file);
 
             return res.json(result);
 
         } catch (err) {
-            console.error(err);
-            return res.status(500).json({
-                success: false,
-                message: err.message
-            });
+            console.error("COVER ERROR:", err);
+            return res.status(500).json({ success: false, message: err.message });
         }
     }
 }

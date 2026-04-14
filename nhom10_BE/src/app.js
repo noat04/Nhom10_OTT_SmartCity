@@ -4,16 +4,16 @@ const logger = require('morgan');
 const cors = require('cors');
 
 // Middleware auth
-const { verifyToken } = require('./src/shared/middlewares/auth.middleware');
+const { verifyToken } = require('./shared/middlewares/auth.middleware');
 
 // Routes modules
-const authRoutes = require('./src/modules/auth/auth.route');
-const chatRoutes = require('./src/modules/chat/chat.route');
-const userRoutes = require('./src/modules/user/user.route');
-const friendRoutes = require('./src/modules/friend/friend.route');
+const authRoutes = require('./modules/auth/auth.route');
+const chatRoutes = require('./modules/chat/chat.route');
+const userRoutes = require('./modules/user/user.route');
+const friendRoutes = require('./modules/friend/friend.route');
 
 // MongoDB connection
-const connectMongoDB = require('./src/shared/configs/mongodb');
+//const connectMongoDB = require('./src/shared/configs/mongodb');
 
 const app = express();
 
@@ -88,23 +88,5 @@ app.use((err, req, res, next) => {
     error: process.env.NODE_ENV === 'development' ? err : {}
   });
 });
-
-// ==========================================
-// 5. START SERVER (QUAN TRỌNG)
-// ==========================================
-const PORT = process.env.PORT || 3000;
-
-// 👉 Chỉ start server khi DB connect OK
-connectMongoDB()
-  .then(() => {
-    console.log("✅ MongoDB connected");
-
-    app.listen(PORT, () => {
-      console.log(`🚀 Server running at http://localhost:${PORT}`);
-    });
-  })
-  .catch(err => {
-    console.error("❌ MongoDB error:", err);
-  });
 
 module.exports = app;

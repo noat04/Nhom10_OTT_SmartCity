@@ -15,7 +15,6 @@ const verifyToken = async (req, res, next) => {
             return res.status(401).json({ message: "Token không hợp lệ" });
         }
 
-        // 🔥 FIX QUAN TRỌNG
         const decoded = jwt.verify(
             token,
             process.env.JWT_SECRET || "SmartCity_Nhom10_Secret_Key_2026"
@@ -25,6 +24,14 @@ const verifyToken = async (req, res, next) => {
 
         if (!user) {
             return res.status(404).json({ message: "User không tồn tại" });
+        }
+
+        // 🔥 CHECK TOKEN (QUAN TRỌNG NHẤT)
+        if (user.currentToken !== token) {
+            return res.status(401).json({
+                success: false,
+                message: "Tài khoản đã đăng nhập ở thiết bị khác"
+            });
         }
 
         req.user = user;

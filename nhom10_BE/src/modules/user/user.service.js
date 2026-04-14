@@ -1,19 +1,14 @@
 const User = require('../../../models/user');
+const { uploadFile, deleteFileByUrl } = require('../../../config/s3');
 
 class UserService {
 
-    // ================= GET PROFILE =================
-    // 👉 Lấy thông tin user (ẩn password)
     async getProfile(userId) {
         const user = await User.findById(userId).select('-password');
-
         if (!user) throw new Error("Không tìm thấy user");
-
         return { success: true, user };
     }
 
-    // ================= UPDATE PROFILE =================
-    // 👉 Chỉ update text (KHÔNG update email/password)
     async updateProfile(userId, data) {
         const updateData = {};
 
@@ -30,30 +25,50 @@ class UserService {
         return { success: true, user };
     }
 
-    // ================= UPDATE AVATAR =================
-    // 👉 Lưu link avatar từ S3 vào DB
-    async updateAvatar(userId, avatarUrl) {
-        if (!avatarUrl) throw new Error("Avatar URL không hợp lệ");
+    // ================= AVATAR =================
+    async updateAvatar(userId, file) {
+        const user = await User.findById(userId);
+        if (!user) throw new Error("User không tồn tại");
 
-        const user = await User.findByIdAndUpdate(
-            userId,
-            { avatar: avatarUrl },
-            { new: true }
-        ).select('-password');
+        console.log("OLD AVATAR:", user.avatar);
+
+        // 🔥 XÓA ẢNH CŨ
+        if (user.avatar) {
+            await deleteFileByUrl(user.avatar);
+        }
+
+        // 🔥 UPLOAD MỚI
+        const avatarUrl = await uploadFile(
+            file.buffer,
+            file.originalname,
+            file.mimetype
+        );
+
+        console.log("NEW AVATAR:", avatarUrl);
+
+        user.avatar = avatarUrl;
+        await user.save();
 
         return { success: true, user };
     }
 
-    // ================= UPDATE COVER =================
-    // 👉 Lưu link cover từ S3 vào DB
-    async updateCover(userId, coverUrl) {
-        if (!coverUrl) throw new Error("Cover URL không hợp lệ");
+    // ================= COVER =================
+    async updateCover(userId, file) {
+        const user = await User.findById(userId);
+        if (!user) throw new Error("User không tồn tại");
 
-        const user = await User.findByIdAndUpdate(
-            userId,
-            { coverImage: coverUrl },
-            { new: true }
-        ).select('-password');
+        if (user.coverImage) {
+            await deleteFileByUrl(user.coverImage);
+        }
+
+        const coverUrl = await uploadFile(
+            file.buffer,
+            file.originalname,
+            file.mimetype
+        );
+
+        user.coverImage = coverUrl;
+        await user.save();
 
         return { success: true, user };
     }

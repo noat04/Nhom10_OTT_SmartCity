@@ -12,6 +12,9 @@ const {
     isDisposable
 } = require('../../shared/utils/emailValidator');
 
+const socketUtil = require('../../shared/utils/socket');
+// ❌ XÓA dòng: const io = socketUtil.getIO();
+
 class AuthService {
 
     // ================= VALIDATE EMAIL =================
@@ -36,7 +39,6 @@ class AuthService {
 
         await this.validateEmail(email);
 
-        // 🔥 CHẶN EMAIL ĐÃ TỒN TẠI NGAY TỪ ĐÂY
         const existEmail = await User.findOne({ email });
         if (existEmail) {
             throw new Error("Email đã được sử dụng");
@@ -44,7 +46,7 @@ class AuthService {
 
         const otp = generateOTP();
 
-        await OTP.deleteMany({ email }); // tránh spam
+        await OTP.deleteMany({ email });
 
         await OTP.create({
             email,
@@ -90,10 +92,6 @@ class AuthService {
 
         if (!user) throw new Error("Email không tồn tại");
 
-        if (user.status === "online") {
-            throw new Error("Tài khoản đang đăng nhập ở thiết bị khác");
-        }
-
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) throw new Error("Sai mật khẩu");
 
@@ -120,14 +118,21 @@ class AuthService {
 
         const user = await User.findOne({ email });
 
-        user.status = "online";
-        await user.save();
+        // ✅ CHỈ LẤY IO KHI CẦN
+        const io = socketUtil.getIO();
+
+        // 🔥 Đá thiết bị cũ
+        io.to(user._id.toString()).emit("force_logout");
 
         const token = jwt.sign(
             { id: user._id },
             process.env.JWT_SECRET,
             { expiresIn: '1d' }
         );
+
+        user.currentToken = token;
+        user.status = "online";
+        await user.save();
 
         await OTP.deleteMany({ email });
 
@@ -137,7 +142,11 @@ class AuthService {
     // ================= LOGOUT =================
     async logout(userId) {
         const user = await User.findById(userId);
+
+        user.currentToken = null;
         user.status = "offline";
+        user.lastSeen = new Date();
+
         await user.save();
 
         return { success: true };

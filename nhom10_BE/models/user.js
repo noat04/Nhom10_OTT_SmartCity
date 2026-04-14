@@ -48,6 +48,10 @@ const userSchema = new mongoose.Schema({
     enum: ['online', 'offline'], // (Tùy chọn) Ràng buộc các trạng thái
     default: 'offline' 
   },
+  currentToken: {
+      type: String,
+      default: null
+  },
   lastSeen: { 
     type: Date,
     default: Date.now

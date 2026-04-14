@@ -51,11 +51,11 @@ export default function OTPPage() {
         if (type === "login") {
           localStorage.setItem("token", data.token)
           alert("✅ Đăng nhập thành công!")
+          navigate("/profile")
         } else {
           alert("✅ Đăng ký thành công!")
+          navigate("/")
         }
-
-        navigate("/")
       } else {
         alert(data.message)
       }

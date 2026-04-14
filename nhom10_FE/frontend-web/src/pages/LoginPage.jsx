@@ -40,6 +40,16 @@ export default function LoginPage() {
 
       <button onClick={handleLogin}>Đăng nhập</button>
 
+      {/* 🔥 QUÊN MẬT KHẨU */}
+      <p style={{ marginTop: 10 }}>
+        <span
+          style={{ color: "blue", cursor: "pointer" }}
+          onClick={() => navigate('/forgot-password')}
+        >
+          Quên mật khẩu?
+        </span>
+      </p>
+      
       {/* 🔥 THÊM PHẦN NÀY */}
       <p>Bạn chưa có tài khoản?</p>
       <button onClick={() => navigate('/register')}>

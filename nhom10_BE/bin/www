@@ -26,6 +26,9 @@ app.set('port', port);
  */
 const server = http.createServer(app);
 
+const socket = require('../src/shared/utils/socket');
+socket.init(server);
+
 // ==========================================
 // 1. KẾT NỐI DATABASE (Hoàn toàn bằng MongoDB Atlas)
 // ==========================================
