@@ -7,7 +7,7 @@
     "dialect": "mysql",
     "charset": "utf8mb4",
     "collate": "utf8mb4_unicode_ci",
-    "mongodb_url": "mongodb://localhost:27017/smartcity_chat"
+    "mongodb_url": "mongodb+srv://root:sapassword@cluster0.f9gqosv.mongodb.net/smartCity_db?appName=Cluster0"
   },
   "test": {
     "username": "root",

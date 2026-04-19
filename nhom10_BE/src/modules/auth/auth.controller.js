@@ -1,55 +1,93 @@
 const authService = require('./auth.service');
-const  User  = require('../../../models/user');
 
-class AuthController {
-    async register(req, res) {
-        try {
-            const user = await authService.register(req.body);
-            res.status(201).json({
-                success: true,
-                message: 'Đăng ký thành công!',
-                data: user
-            });
-        } catch (error) {
-            res.status(400).json({ success: false, message: error.message });
-        }
+// REGISTER
+const registerSendOTP = async (req, res) => {
+    try {
+        const result = await authService.sendOTPRegister(req.body.email);
+        res.json(result);
+    } catch (err) {
+        res.status(400).json({ message: err.message });
     }
+};
 
-    async login(req, res) {
-        try {
-            const { email, password } = req.body;
-            if (!email || !password) {
-                return res.status(400).json({ success: false, message: 'Vui lòng nhập email và mật khẩu' });
-            }
-
-            const data = await authService.login(email, password);
-            res.status(200).json({
-                success: true,
-                message: 'Đăng nhập thành công!',
-                data
-            });
-        } catch (error) {
-            res.status(401).json({ success: false, message: error.message });
-        }
+const registerVerifyOTP = async (req, res) => {
+    try {
+        const result = await authService.verifyRegister(req.body);
+        res.json(result);
+    } catch (err) {
+        res.status(400).json({ message: err.message });
     }
+};
 
-    // Lấy thông tin cá nhân của người đang đăng nhập
-    async getMe(req, res) {
-        try {
-            // req.user.id được lấy từ Auth Middleware
-            const user = await User.findByPk(req.user.id, {
-                attributes: { exclude: ['password'] } // Không trả về mật khẩu
-            });
+const login = async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        const result = await authService.login(email, password);
 
-            if (!user) {
-                return res.status(404).json({ success: false, message: 'Không tìm thấy người dùng' });
-            }
-
-            res.status(200).json({ success: true, data: user });
-        } catch (error) {
-            res.status(500).json({ success: false, message: 'Lỗi server' });
-        }
+        res.json(result);
+    } catch (err) {
+        res.status(400).json({
+            success: false,
+            message: err.message
+        });
     }
-}
+};
 
-module.exports = new AuthController();
+// USER
+const getMe = async (req, res) => {
+    try {
+        const result = await authService.getMe(req.user.id);
+        res.json(result);
+    } catch (err) {
+        res.status(400).json({ message: err.message });
+    }
+};
+
+// FORGOT PASSWORD
+const forgotPassword = async (req, res) => {
+    try {
+        const result = await authService.sendOTPReset(req.body.email);
+        res.json(result);
+    } catch (err) {
+        res.status(400).json({ message: err.message });
+    }
+};
+
+const verifyResetOTP = async (req, res) => {
+    try {
+        const { email, otp } = req.body;
+        const result = await authService.verifyOTPReset(email, otp);
+        res.json(result);
+    } catch (err) {
+        res.status(400).json({ message: err.message });
+    }
+};
+
+const resetPassword = async (req, res) => {
+    try {
+        const { email, otp, newPassword } = req.body;
+        const result = await authService.resetPassword(email, otp, newPassword);
+        res.json(result);
+    } catch (err) {
+        res.status(400).json({ message: err.message });
+    }
+};
+
+const logout = async (req, res) => {
+    try {
+        const result = await authService.logout(req.user.id);
+        res.json(result);
+    } catch (err) {
+        res.status(400).json({ message: err.message });
+    }
+};
+module.exports = {
+    registerSendOTP,
+    registerVerifyOTP,
+    login,
+    getMe,
+    forgotPassword,
+    verifyResetOTP,
+    resetPassword,
+    logout
+};

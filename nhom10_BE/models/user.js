@@ -20,7 +20,7 @@ const userSchema = new mongoose.Schema({
   password: { 
     type: String, 
     required: [true, 'Vui lòng nhập mật khẩu'],
-    select: false // Cực kỳ quan trọng trong JWT Flow: Mặc định ẩn password khi query để không bị lộ
+    select: false 
   },
   phone: { 
     type: String,
@@ -28,6 +28,7 @@ const userSchema = new mongoose.Schema({
   },
   fullName: { 
     type: String,
+    required: [true, 'Vui lòng nhập họ tên'],
     default: ""
   },
   avatar: { 
@@ -47,6 +48,10 @@ const userSchema = new mongoose.Schema({
     enum: ['online', 'offline'], // (Tùy chọn) Ràng buộc các trạng thái
     default: 'offline' 
   },
+  currentToken: {
+      type: String,
+      default: null
+  },
   lastSeen: { 
     type: Date,
     default: Date.now
@@ -57,35 +62,8 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: ""
   },
-
-  // --- THIẾT LẬP CÁC QUAN HỆ (ASSOCIATIONS) TRONG MONGODB ---
-
-  // 1. Bạn bè & Lời mời kết bạn (Lưu thành mảng ObjectId)
-  // friends: [{ 
-  //   type: mongoose.Schema.Types.ObjectId, 
-  //   ref: 'User' 
-  // }],
-  // friendRequests: [{ 
-  //   type: mongoose.Schema.Types.ObjectId, 
-  //   ref: 'User' 
-  // }],
-
-  // // 2. Hội thoại (Thay cho bảng trung gian ConversationMember)
-  // conversations: [{ 
-  //   type: mongoose.Schema.Types.ObjectId, 
-  //   ref: 'Conversation' 
-  // }]
-
-  /* LƯU Ý VỀ THIẾT KẾ NOSQL:
-    Với các dữ liệu phát sinh nhiều như Calls (Cuộc gọi), Notifications (Thông báo), 
-    FileUploads (File đã tải lên), bạn KHÔNG NÊN lưu thành mảng ở đây vì sẽ làm phình to 
-    User Document. 
-    
-    Cách xử lý đúng: Ở các Model Notification, Call, FileUpload... bạn sẽ tạo một 
-    trường `userId` trỏ ngược lại về User Model (giống hệt khóa ngoại).
-    Khi cần lấy thông báo của User, bạn chỉ cần gọi: 
-    Notification.find({ userId: req.user.id })
-  */
+  otpAttempts: { type: Number, default: 0 },
+  otpBlockedUntil: Date
 
 }, {
   timestamps: true // Tự động quản lý createdAt và updatedAt (thay thế cho việc Sequelize tự làm)

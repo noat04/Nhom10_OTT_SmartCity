@@ -69,6 +69,71 @@ class FriendController {
             res.status(500).json({ success: false, message: "Lỗi server" });
         }
     }
+    // 3. Lấy danh sách bạn bè
+    async getFriends(req, res) {
+        try {
+            const userId = req.user.id;
+
+            const friendships = await Friend.find({
+                $or: [
+                    { userId: userId },
+                    { friendId: userId }
+                ],
+                status: "accepted"
+            });
+
+            // 🔥 lấy danh sách id bạn bè
+            const friendIds = friendships.map(f =>
+                f.userId.toString() === userId.toString()
+                    ? f.friendId
+                    : f.userId
+            );
+
+            // 🔥 lấy thông tin user
+            const friends = await User.find({
+                _id: { $in: friendIds }
+            }).select("-password");
+
+            res.json({
+                success: true,
+                data: friends
+            });
+
+        } catch (error) {
+            console.error("Lỗi lấy danh sách bạn:", error);
+            res.status(500).json({ success: false, message: "Lỗi server" });
+        }
+    }
+    // 4. Lấy danh sách lời mời kết bạn
+    async getFriendRequests(req, res) {
+        try {
+            const userId = req.user.id;
+
+            // 🔥 lời mời nhận
+            const received = await Friend.find({
+                friendId: userId,
+                status: "pending"
+            }).populate("userId", "-password");
+
+            // 🔥 lời mời đã gửi
+            const sent = await Friend.find({
+                userId: userId,
+                status: "pending"
+            }).populate("friendId", "-password");
+
+            res.json({
+                success: true,
+                data: {
+                    received,
+                    sent
+                }
+            });
+
+        } catch (error) {
+            console.error("Lỗi lấy danh sách lời mời:", error);
+            res.status(500).json({ success: false, message: "Lỗi server" });
+        }
+    }
 }
 
 module.exports = new FriendController();

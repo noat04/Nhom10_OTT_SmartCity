@@ -1,20 +1,16 @@
-// 1. Chỉ cần import trực tiếp Model User, xóa bỏ Sequelize và Op
 const User = require('../../../models/user');
+const userService = require('./user.service');
 
 class UserController {
+
     async searchUsers(req, res) {
         try {
             const keyword = req.query.search;
-            const currentUserId = req.user.id; // Lấy từ auth.middleware
+            const currentUserId = req.user.id;
 
-            // 2. Chuyển đổi điều kiện cơ bản sang cú pháp MongoDB: $ne (Not Equal)
-            let condition = {
-                _id: { $ne: currentUserId } 
-            };
+            let condition = { _id: { $ne: currentUserId } };
 
-            // 3. Nếu có nhập từ khóa (search)
             if (keyword) {
-                // Chuyển đổi Op.or thành $or, và Op.like thành $regex (với options 'i' để không phân biệt hoa thường)
                 condition.$or = [
                     { username: { $regex: keyword, $options: 'i' } },
                     { email: { $regex: keyword, $options: 'i' } },
@@ -22,34 +18,94 @@ class UserController {
                 ];
             }
 
-            // 4. Thực hiện truy vấn với Mongoose
             const users = await User.find(condition)
-                .select('-password') // Bảo mật: Trừ trường password (dấu - phía trước)
-                .limit(20);          // Giới hạn số lượng kết quả
+                .select('-password')
+                .limit(20);
 
-            res.status(200).json({ success: true, data: users });
+            return res.json({ success: true, data: users });
+
         } catch (error) {
-            console.error("Lỗi search user:", error);
-            res.status(500).json({ success: false, message: "Lỗi tìm kiếm người dùng" });
+            console.error("SEARCH ERROR:", error);
+            return res.status(500).json({ success: false, message: "Lỗi tìm kiếm" });
         }
     }
 
     async checkOnlineStatus(req, res) {
         try {
-            const userId = req.user.id;
-            
-            // 5. Chuyển findByPk thành findById
-            // Mình gắn thêm select('-password') để tránh rò rỉ password ra API
-            const user = await User.findById(userId).select('-password');
-            
+            const user = await User.findById(req.user.id).select('-password');
+
             if (!user) {
-                 return res.status(404).json({ success: false, message: "Không tìm thấy người dùng" });
+                return res.status(404).json({
+                    success: false,
+                    message: "Không tìm thấy user"
+                });
             }
 
-            res.status(200).json({ success: true, data: user });
+            return res.json({ success: true, data: user });
+
         } catch (error) {
-            console.error("Lỗi check online status:", error);
-            res.status(500).json({ success: false, message: "Lỗi check online status" });
+            console.error(error);
+            return res.status(500).json({ success: false });
+        }
+    }
+
+    async getProfile(req, res) {
+        try {
+            const result = await userService.getProfile(req.user.id);
+            return res.json(result);
+        } catch (err) {
+            console.error(err);
+            return res.status(400).json({ success: false, message: err.message });
+        }
+    }
+
+    async updateProfile(req, res) {
+        try {
+            const result = await userService.updateProfile(req.user.id, req.body);
+            return res.json(result);
+        } catch (err) {
+            console.error(err);
+            return res.status(400).json({ success: false, message: err.message });
+        }
+    }
+
+    // 🔥 AVATAR
+    async updateAvatar(req, res) {
+        try {
+            if (!req.file) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Chưa chọn file"
+                });
+            }
+
+            const result = await userService.updateAvatar(req.user.id, req.file);
+
+            return res.json(result);
+
+        } catch (err) {
+            console.error("AVATAR ERROR:", err);
+            return res.status(500).json({ success: false, message: err.message });
+        }
+    }
+
+    // 🔥 COVER
+    async updateCover(req, res) {
+        try {
+            if (!req.file) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Chưa chọn file"
+                });
+            }
+
+            const result = await userService.updateCover(req.user.id, req.file);
+
+            return res.json(result);
+
+        } catch (err) {
+            console.error("COVER ERROR:", err);
+            return res.status(500).json({ success: false, message: err.message });
         }
     }
 }
