@@ -49,7 +49,7 @@ class ChatController {
             
             res.status(200).json({ 
                 success: true, 
-                data: result 
+                data: result  
             });
         } catch (error) {
             console.error(error);
@@ -70,34 +70,6 @@ class ChatController {
         }
     }
 
-    // async sendMessageAPI(req, res) {
-    //     try {
-    //         const { conversationId, content, type } = req.body;
-    //         const senderId = req.user.id;
-
-    //         if (!conversationId || !content) {
-    //             return res.status(400).json({ success: false, message: "Thiếu dữ liệu" });
-    //         }
-
-    //         const messageData = { conversationId, senderId, content, type };
-
-    //         // 1. Save DB
-    //         const savedMessage = await chatService.saveMessage(messageData);
-
-    //         // 2. Emit realtime (QUAN TRỌNG)
-    //         const socketUtil = require('../../shared/utils/socket');
-    //         const io = socketUtil.getIO();
-
-    //         // 💡 LƯU Ý MONGODB: Ép kiểu conversationId về String để Socket.io hiểu đúng tên Room
-    //         io.to(conversationId.toString()).emit('newMessage', savedMessage);
-
-    //         res.status(201).json({ success: true, data: savedMessage });
-
-    //     } catch (error) {
-    //         console.error(error);
-    //         res.status(500).json({ success: false, message: "Lỗi server" });
-    //     }
-    // }
     async sendMessageAPI(req, res) {
         try {
             // 👉 SỬA DÒNG NÀY: Bổ sung thêm fileUrl, fileName, fileSize

@@ -1,16 +1,6 @@
-/* src/index.css */
-@import "tailwindcss"; /* Dành cho Tailwind v4 */
 
-/* Hoặc nếu bạn dùng v3 thì là 3 dòng này:
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-*/
+/* html, body, #root {
+  height: 100%;
+  margin: 0;
+} */
 
-.custom-scrollbar::-webkit-scrollbar {
-  width: 4px;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background-color: #e5e7eb;
-  border-radius: 4px;
-}

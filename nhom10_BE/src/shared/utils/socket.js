@@ -42,7 +42,9 @@ module.exports = {
         io.on('connection', async (socket) => {
             // Mongoose ID có thể nằm ở _id hoặc id tùy vào cấu hình JSON
             const userId = (socket.user.id || socket.user._id).toString(); 
-            
+              
+            //tất cả thiết bị (web + mobile + tab) đều join vào room đó
+            socket.join(userId);
             console.log(`✅ Client connected: ${socket.id} - User ID: ${userId}`);
 
             // 1. USER ONLINE (Mongoose)

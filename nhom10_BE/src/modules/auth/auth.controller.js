@@ -19,24 +19,17 @@ const registerVerifyOTP = async (req, res) => {
     }
 };
 
-// LOGIN
-const loginSendOTP = async (req, res) => {
+const login = async (req, res) => {
     try {
         const { email, password } = req.body;
-        const result = await authService.sendOTPLogin(email, password);
-        res.json(result);
-    } catch (err) {
-        res.status(400).json({ message: err.message });
-    }
-};
+        const result = await authService.login(email, password);
 
-const loginVerifyOTP = async (req, res) => {
-    try {
-        const { email, otp } = req.body;
-        const result = await authService.verifyLogin(email, otp);
         res.json(result);
     } catch (err) {
-        res.status(400).json({ message: err.message });
+        res.status(400).json({
+            success: false,
+            message: err.message
+        });
     }
 };
 
@@ -91,8 +84,7 @@ const logout = async (req, res) => {
 module.exports = {
     registerSendOTP,
     registerVerifyOTP,
-    loginSendOTP,
-    loginVerifyOTP,
+    login,
     getMe,
     forgotPassword,
     verifyResetOTP,

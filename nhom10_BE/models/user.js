@@ -62,6 +62,8 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: ""
   },
+  otpAttempts: { type: Number, default: 0 },
+  otpBlockedUntil: Date
 
 }, {
   timestamps: true // Tự động quản lý createdAt và updatedAt (thay thế cho việc Sequelize tự làm)

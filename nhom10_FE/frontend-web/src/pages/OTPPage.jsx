@@ -1,86 +1,123 @@
-import { useState } from "react"
-import { useLocation, useNavigate } from "react-router-dom"
+import React, { useState, useRef } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { verifyOtpAPI } from "../api/authApi";
 
-export default function OTPPage() {
-  const [otp, setOtp] = useState("")
-  const location = useLocation()
-  const navigate = useNavigate()
+export default function OtpPage() {
+  const [otp, setOtp] = useState(["", "", "", "", "", ""]);
+  const [loading, setLoading] = useState(false);
 
-  // dữ liệu truyền từ page trước
-  const { email, password, username, fullName, type } = location.state || {}
+  const location = useLocation();
+  const navigate = useNavigate();
+  const inputsRef = useRef([]);
 
-  // ================= VERIFY =================
-  const handleVerify = async () => {
+  const dataFromAuth = location.state;
+
+  // ===== handle input OTP =====
+  const handleChange = (value, index) => {
+    if (!/^[0-9]?$/.test(value)) return;
+
+    const newOtp = [...otp];
+    newOtp[index] = value;
+    setOtp(newOtp);
+
+    if (value && index < 5) {
+      inputsRef.current[index + 1]?.focus();
+    }
+  };
+
+  const handleKeyDown = (e, index) => {
+    if (e.key === "Backspace" && !otp[index] && index > 0) {
+      inputsRef.current[index - 1]?.focus();
+    }
+  };
+
+  // ===== VERIFY OTP (CHỈ REGISTER) =====
+  const handleVerify = async (e) => {
+    e.preventDefault();
+
+    if (loading) return;
+    if (!dataFromAuth) return alert("Dữ liệu không hợp lệ!");
+
+    const otpCode = otp.join("");
+
+    if (otpCode.length !== 6) {
+      return alert("Vui lòng nhập đủ 6 số OTP!");
+    }
+
+    setLoading(true);
+
     try {
-      let url = ""
-      let body = {}
+      const endpoint = "/auth/register/verify"; // 🔥 chỉ register
 
-      // ================= REGISTER =================
-      if (type === "register") {
-        url = "http://localhost:3000/api/auth/register/verify"
-        body = {
-          email,
-          otp,
-          password,
-          username,
-          fullName
-        }
-      }
+      const payload = {
+        email: dataFromAuth.email,
+        password: dataFromAuth.password,
+        username: dataFromAuth.username,
+        fullName: dataFromAuth.fullName,
+        phone: dataFromAuth.phone,
+        otp: otpCode,
+      };
 
-      // ================= LOGIN =================
-      if (type === "login") {
-        url = "http://localhost:3000/api/auth/login/verify"
-        body = {
-          email,
-          otp
-        }
-      }
+      const res = await verifyOtpAPI(endpoint, payload);
 
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(body)
-      })
-
-      const data = await res.json()
-
-      if (data.success) {
-        // login thì lưu token
-        if (type === "login") {
-          localStorage.setItem("token", data.token)
-          alert("✅ Đăng nhập thành công!")
-          navigate("/profile")
-        } else {
-          alert("✅ Đăng ký thành công!")
-          navigate("/")
-        }
+      if (res.success) {
+        alert("Đăng ký thành công!");
+        navigate("/auth", { replace: true });
       } else {
-        alert(data.message)
+        alert(res.message || "OTP không đúng!");
       }
     } catch (err) {
-      alert("Lỗi: " + err.message)
+      console.error(err);
+      alert("Lỗi xác thực OTP!");
+    } finally {
+      setLoading(false);
     }
-  }
-
-  // nếu vào trực tiếp không có data
-  if (!email) {
-    return <h3 style={{ textAlign: "center" }}>❌ Không có dữ liệu</h3>
-  }
+  };
 
   return (
-    <div style={{ maxWidth: 400, margin: "50px auto", textAlign: "center" }}>
-      <h2>🔢 Nhập OTP</h2>
+    <div className="container vh-100 d-flex justify-content-center align-items-center">
+      <div className="card p-4 shadow text-center" style={{ width: "350px" }}>
+        <h4>Xác thực OTP đăng ký</h4>
 
-      <p>Email: <b>{email}</b></p>
+        <p className="text-muted">
+          Email: <b>{dataFromAuth?.email}</b>
+        </p>
 
-      <input
-        placeholder="Nhập OTP"
-        onChange={(e) => setOtp(e.target.value)}
-      /><br /><br />
+        {/* OTP BOXES */}
+        <div className="d-flex justify-content-center gap-2 mb-3">
+          {otp.map((value, index) => (
+            <input
+              key={index}
+              ref={(el) => (inputsRef.current[index] = el)}
+              type="text"
+              maxLength={1}
+              value={value}
+              onChange={(e) => handleChange(e.target.value, index)}
+              onKeyDown={(e) => handleKeyDown(e, index)}
+              className="text-center fw-bold"
+              style={{
+                width: "40px",
+                height: "45px",
+                fontSize: "20px",
+                border: "1px solid #ccc",
+                borderRadius: "8px",
+              }}
+            />
+          ))}
+        </div>
 
-      <button onClick={handleVerify}>Xác thực</button>
+        <button
+          onClick={handleVerify}
+          className="btn btn-success w-100"
+          disabled={loading}
+        >
+          {loading ? "Đang xác thực..." : "Xác nhận"}
+        </button>
+
+        <button className="btn btn-link mt-2" onClick={() => navigate(-1)}>
+          Quay lại
+        </button>
+      </div>
     </div>
-  )
+  );
 }

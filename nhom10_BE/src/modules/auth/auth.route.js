@@ -7,9 +7,9 @@ const { verifyToken } = require('../../shared/middlewares/auth.middleware');
 router.post('/register/send-otp', authController.registerSendOTP);
 router.post('/register/verify', authController.registerVerifyOTP);
 
-router.post('/login/send-otp', authController.loginSendOTP);
-router.post('/login/verify', authController.loginVerifyOTP);
-
+// router.post('/login/send-otp', authController.loginSendOTP);
+// router.post('/login/verify', authController.loginVerifyOTP);
+router.post('/login', authController.login);
 router.get('/me', verifyToken, authController.getMe);
 
 // 🔥 RESET PASSWORD

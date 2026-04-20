@@ -1,11 +1,11 @@
 const User = require('../../../models/user');
-const OTP = require('./otp.model');
+const OTP = require('../../../models/otp.model');
 
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
 const { generateOTP } = require('../../shared/utils/otp');
-const { sendOTP } = require('../../shared/utils/mailer');
+const { sendOTP, sendWarningEmail } = require('../../shared/utils/mailer');
 const {
     isValidEmail,
     checkDomain,
@@ -13,7 +13,6 @@ const {
 } = require('../../shared/utils/emailValidator');
 
 const socketUtil = require('../../shared/utils/socket');
-// ❌ XÓA dòng: const io = socketUtil.getIO();
 
 class AuthService {
 
@@ -34,13 +33,43 @@ class AuthService {
     }
 
     // ================= REGISTER =================
+    // async sendOTPRegister(email) {
+    //     if (!email) throw new Error("Thiếu email");
+
+    //     await this.validateEmail(email);
+
+    //     const existEmail = await User.findOne({ email });
+    //     if (existEmail) {
+    //         throw new Error("Email đã được sử dụng");
+    //     }
+
+    //     const otp = generateOTP();
+
+    //     await OTP.deleteMany({ email });
+
+    //     await OTP.create({
+    //         email,
+    //         otp,
+    //         expiresAt: new Date(Date.now() + 5 * 60 * 1000)
+    //     });
+
+    //     await sendOTP(email, otp);
+
+    //     return { success: true, message: "OTP đã gửi" };
+    // }
     async sendOTPRegister(email) {
         if (!email) throw new Error("Thiếu email");
 
         await this.validateEmail(email);
 
         const existEmail = await User.findOne({ email });
+
+        // 🔥 FIX: nếu user tồn tại nhưng đang bị lock → reset
         if (existEmail) {
+            existEmail.otpAttempts = 0;
+            existEmail.otpBlockedUntil = null;
+            await existEmail.save();
+
             throw new Error("Email đã được sử dụng");
         }
 
@@ -60,7 +89,7 @@ class AuthService {
     }
 
     async verifyRegister(data) {
-        const { email, otp, password, username, fullName, phone } = data;
+        const { email, otp, password, username, fullName, phone} = data;
 
         const record = await OTP.findOne({ email, otp });
 
@@ -87,57 +116,163 @@ class AuthService {
     }
 
     // ================= LOGIN =================
-    async sendOTPLogin(email, password) {
-        const user = await User.findOne({ email }).select('+password');
+    // async sendOTPLogin(email, password) {
+    //     const user = await User.findOne({ email }).select('+password');
 
-        if (!user) throw new Error("Email không tồn tại");
+    //     if (!user) throw new Error("Email không tồn tại");
+        
+    //     // 🔥 CHECK LOCK
+    //     if (user.otpBlockedUntil && user.otpBlockedUntil > Date.now()) {
+    //         const timeLeft = Math.ceil((user.otpBlockedUntil - Date.now()) / 1000);
+    //         throw new Error(`Tài khoản bị khóa. Thử lại sau ${timeLeft}s`);
+    //     }
+    //     const isMatch = await bcrypt.compare(password, user.password);
+    //     if (!isMatch) throw new Error("Sai mật khẩu");
 
-        const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) throw new Error("Sai mật khẩu");
+    //      // 🔥 RESET COUNTER
+    //     user.otpAttempts = 0;
+    //     user.otpBlockedUntil = null;
+    //     await user.save();
+    
+    //     const otp = generateOTP();
 
-        const otp = generateOTP();
+    //     await OTP.deleteMany({ email });
 
-        await OTP.deleteMany({ email });
+    //     await OTP.create({
+    //         email,
+    //         otp,
+    //         expiresAt: new Date(Date.now() + 5 * 60 * 1000)
+    //     });
 
-        await OTP.create({
-            email,
-            otp,
-            expiresAt: new Date(Date.now() + 5 * 60 * 1000)
-        });
+    //     await sendOTP(email, otp);
 
-        await sendOTP(email, otp);
+    //     return { success: true };
+    // }
 
-        return { success: true };
+    // async verifyLogin(email, otp) {
+    //     const MAX_ATTEMPTS = 5;
+    //     const BLOCK_TIME = 5 * 60 * 1000;
+
+    //     const user = await User.findOne({ email });
+    //     if (!user) throw new Error("Người dùng không tồn tại");
+
+    //     // 🔥 CHECK LOCK
+    //     if (user.otpBlockedUntil && user.otpBlockedUntil > Date.now()) {
+    //         const timeLeft = Math.ceil(
+    //             (user.otpBlockedUntil - Date.now()) / 1000
+    //         );
+    //         throw new Error(`Tài khoản bị khóa. Thử lại sau ${timeLeft}s`);
+    //     }
+
+    //     const record = await OTP.findOne({ email });
+
+    //     if (record.otp !== String(otp)) {
+    //         user.otpAttempts += 1;
+
+    //         const attemptsLeft = MAX_ATTEMPTS - user.otpAttempts;
+
+    //         let warningMessage = `Bạn đã nhập sai OTP (${user.otpAttempts}/${MAX_ATTEMPTS}).`;
+
+    //         // 🔥 GẦN BỊ KHÓA
+    //         if (attemptsLeft > 0 && attemptsLeft <= 2) {
+    //             warningMessage += `\n⚠️ Bạn chỉ còn ${attemptsLeft} lần thử trước khi tài khoản bị khóa.`;
+    //         }
+
+    //         // 🔥 BỊ KHÓA
+    //         if (user.otpAttempts >= MAX_ATTEMPTS) {
+    //             user.otpBlockedUntil = Date.now() + BLOCK_TIME;
+    //             warningMessage = "🔒 Tài khoản của bạn đã bị khóa do nhập sai OTP quá nhiều lần.";
+    //         }
+
+    //         // 🔥 GỬI EMAIL CẢNH BÁO
+    //         try {
+    //             await sendWarningEmail(user.email, warningMessage);
+    //         } catch (err) {
+    //             console.log("⚠️ Lỗi gửi email cảnh báo:", err.message);
+    //         }
+
+    //         await user.save();
+
+    //         throw new Error(
+    //             `Sai OTP (${user.otpAttempts}/${MAX_ATTEMPTS})`
+    //         );
+    //     }
+    //     if (record.expiresAt < new Date()) throw new Error("OTP đã hết hạn");
+
+    //     // ✅ ĐÚNG OTP → RESET
+    //     user.otpAttempts = 0;
+    //     user.otpBlockedUntil = null;
+
+    //     const io = socketUtil.getIO();
+    //     io.to(user._id.toString()).emit("force_logout");
+
+    //     const token = jwt.sign(
+    //         { id: user._id },
+    //         process.env.JWT_SECRET || "SmartCity_Nhom10_Secret_Key_2026",
+    //         { expiresIn: '1d' }
+    //     );
+
+    //     user.currentToken = token;
+    //     user.status = "online";
+    //     await user.save();
+
+    //     await OTP.deleteMany({ email });
+
+    //     return { 
+    //         success: true, 
+    //         token, 
+    //         user: {
+    //             id: user._id,
+    //             username: user.username,
+    //             email: user.email,
+    //             fullName: user.fullName,
+    //             phone: user.phone,
+    //             bio: user.bio,
+    //             avatar: user.avatar
+    //         }
+    //     };
+    // }
+    async login(email, password) {
+    if (!email || !password) {
+        throw new Error("Thiếu email hoặc password");
     }
 
-    async verifyLogin(email, otp) {
-        const record = await OTP.findOne({ email, otp });
+    const user = await User.findOne({ email }).select('+password');
 
-        if (!record) throw new Error("OTP sai");
-        if (record.expiresAt < new Date()) throw new Error("OTP hết hạn");
+    if (!user) throw new Error("Email không tồn tại");
 
-        const user = await User.findOne({ email });
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) throw new Error("Sai mật khẩu");
 
-        // ✅ CHỈ LẤY IO KHI CẦN
-        const io = socketUtil.getIO();
+    // 🔥 Đá thiết bị cũ (optional)
+    const io = socketUtil.getIO();
+    io.to(user._id.toString()).emit("force_logout");
 
-        // 🔥 Đá thiết bị cũ
-        io.to(user._id.toString()).emit("force_logout");
+    // 🔥 Tạo token
+    const token = jwt.sign(
+        { id: user._id },
+        process.env.JWT_SECRET || "SmartCity_Nhom10_Secret_Key_2026",
+        { expiresIn: '1d' }
+    );
 
-        const token = jwt.sign(
-            { id: user._id },
-            process.env.JWT_SECRET,
-            { expiresIn: '1d' }
-        );
+    user.currentToken = token;
+    user.status = "online";
+    await user.save();
 
-        user.currentToken = token;
-        user.status = "online";
-        await user.save();
-
-        await OTP.deleteMany({ email });
-
-        return { success: true, token };
-    }
+    return {
+        success: true,
+        token,
+        user: {
+            id: user._id,
+            username: user.username,
+            email: user.email,
+            fullName: user.fullName,
+            phone: user.phone,
+            bio: user.bio,
+            avatar: user.avatar
+        }
+    };
+}
 
     // ================= LOGOUT =================
     async logout(userId) {
@@ -153,16 +288,57 @@ class AuthService {
     }
 
     // ================= FORGOT PASSWORD =================
+    // async sendOTPReset(email) {
+    //     await this.validateEmail(email);
+
+    //     const user = await User.findOne({ email });
+    //     if (!user) throw new Error("Email không tồn tại");
+
+    //     const otp = generateOTP();
+
+    //     await OTP.deleteMany({ email });
+
+    //     await OTP.create({
+    //         email,
+    //         otp,
+    //         expiresAt: new Date(Date.now() + 5 * 60 * 1000)
+    //     });
+
+    //     await sendOTP(email, otp, "OTP đặt lại mật khẩu");
+
+    //     return { success: true };
+    // }
     async sendOTPReset(email) {
+        if (!email) throw new Error("Thiếu email");
+
         await this.validateEmail(email);
 
         const user = await User.findOne({ email });
         if (!user) throw new Error("Email không tồn tại");
 
+        // 🔥 CHECK LOCK (nhưng vẫn cho reset)
+        if (user.otpBlockedUntil && user.otpBlockedUntil > Date.now()) {
+            console.log("⚠️ User đang bị lock nhưng vẫn cho reset password");
+        }
+
+        // 🔥 RESET LOCK
+        user.otpAttempts = 0;
+        user.otpBlockedUntil = null;
+        await user.save();
+
+        // 🔥 CHỐNG SPAM (cooldown 60s)
+        const lastOTP = await OTP.findOne({ email }).sort({ createdAt: -1 });
+
+        if (lastOTP && Date.now() - new Date(lastOTP.createdAt).getTime() < 60000) {
+            throw new Error("Vui lòng chờ 60 giây trước khi gửi lại OTP");
+        }
+
         const otp = generateOTP();
 
+        // 🔥 XÓA OTP CŨ
         await OTP.deleteMany({ email });
 
+        // 🔥 TẠO OTP MỚI
         await OTP.create({
             email,
             otp,
@@ -171,7 +347,10 @@ class AuthService {
 
         await sendOTP(email, otp, "OTP đặt lại mật khẩu");
 
-        return { success: true };
+        return { 
+            success: true,
+            message: "OTP reset mật khẩu đã được gửi"
+        };
     }
 
     async verifyOTPReset(email, otp) {

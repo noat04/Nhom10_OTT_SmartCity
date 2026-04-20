@@ -1,49 +1,30 @@
-const jwt = require('jsonwebtoken');
-const User = require('../../../models/user');
+    const jwt = require('jsonwebtoken');
+    const User = require('../../../models/user');
 
-const verifyToken = async (req, res, next) => {
-    try {
-        const authHeader = req.headers.authorization;
+    const verifyToken = async (req, res, next) => {
+        try {
+            const authHeader = req.headers.authorization;
+            if (!authHeader || !authHeader.startsWith('Bearer ')) {
+                return res.status(401).json({ message: "Chưa đăng nhập" });
+            }
 
-        if (!authHeader) {
-            return res.status(401).json({ message: "Chưa đăng nhập" });
+            const token = authHeader.split(' ')[1];
+            console.log(token);
+            // Dùng secret cố định để test nếu biến môi trường chưa load kịp
+            const secret = process.env.JWT_SECRET || "SmartCity_Nhom10_Secret_Key_2026";
+            
+            const decoded = jwt.verify(token, secret);
+            const user = await User.findById(decoded.id);
+
+            if (!user) return res.status(404).json({ message: "User không tồn tại" });
+
+            // 👉 PHẢI CÓ 2 DÒNG NÀY THÌ MỚI CHẠY ĐƯỢC
+            req.user = user;
+            next(); 
+
+        } catch (error) {
+            console.error("VERIFY TOKEN ERROR:", error.message);
+            return res.status(403).json({ success: false, message: "Token không hợp lệ hoặc hết hạn" });
         }
-
-        const token = authHeader.split(' ')[1];
-
-        if (!token) {
-            return res.status(401).json({ message: "Token không hợp lệ" });
-        }
-
-        const decoded = jwt.verify(
-            token,
-            process.env.JWT_SECRET || "SmartCity_Nhom10_Secret_Key_2026"
-        );
-
-        const user = await User.findById(decoded.id);
-
-        if (!user) {
-            return res.status(404).json({ message: "User không tồn tại" });
-        }
-
-        // 🔥 CHECK TOKEN (QUAN TRỌNG NHẤT)
-        if (user.currentToken !== token) {
-            return res.status(401).json({
-                success: false,
-                message: "Tài khoản đã đăng nhập ở thiết bị khác"
-            });
-        }
-
-        req.user = user;
-        next();
-
-    } catch (error) {
-        console.error("VERIFY TOKEN ERROR:", error);
-        return res.status(403).json({
-            success: false,
-            message: "Phiên đăng nhập hết hạn!"
-        });
-    }
-};
-
-module.exports = { verifyToken };
+    };
+    module.exports = { verifyToken };
