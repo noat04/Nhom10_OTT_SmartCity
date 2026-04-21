@@ -102,16 +102,16 @@ module.exports = {
             // 6. XỬ LÝ SEEN (Đã xem)
             socket.on("seen", async ({ conversationId }) => {
                 try {
-                    console.log(`User ${userId} đã xem phòng ${conversationId}`);
-                    socket.to(conversationId.toString()).emit("user_seen_messages", { 
-                        conversationId, 
-                        userId
+                    await chatService.markAsSeen(conversationId, userId);
+
+                    io.to(conversationId.toString()).emit("message_seen", {
+                    conversationId,
+                    userId
                     });
                 } catch (error) {
                     console.error("Lỗi seen:", error);
                 }
             });
-
             // 7. XỬ LÝ THẢ CẢM XÚC (REACTION)
             socket.on("react_message", async ({ conversationId, messageId, type }) => {
                 try {

@@ -42,6 +42,15 @@ const messageSchema = new mongoose.Schema({
         enum: ['sent', 'delivered', 'seen'], 
         default: 'sent' 
     },
+    seenBy: [
+        {
+            userId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User'
+            },
+            seenAt: Date
+        }
+    ],
     reactions: [
         {
             userId: { 
@@ -56,6 +65,11 @@ const messageSchema = new mongoose.Schema({
             }
         }
     ],
+    
+    replyTo: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Message',
+    },
     
     isDeleted: { 
         type: Boolean, 

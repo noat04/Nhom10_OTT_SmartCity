@@ -73,7 +73,7 @@ class ChatController {
     async sendMessageAPI(req, res) {
         try {
             // 👉 SỬA DÒNG NÀY: Bổ sung thêm fileUrl, fileName, fileSize
-            const { conversationId, content, type, fileUrl, fileName, fileSize } = req.body;
+            const { conversationId, content, type, fileUrl, fileName, fileSize, replyTo } = req.body;
             const senderId = req.user.id;
 
             if (!conversationId) {
@@ -88,7 +88,8 @@ class ChatController {
                 type,
                 fileUrl,     // Đưa link S3 vào đây
                 fileName,    // Đưa tên file vào
-                fileSize     // Đưa dung lượng vào
+                fileSize,     // Đưa dung lượng vào
+                replyTo
             };
 
             // 1. Save DB
@@ -107,7 +108,60 @@ class ChatController {
             res.status(500).json({ success: false, message: "Lỗi server" });
         }
     }
-    
+
+    //Sửa tin nhắn 
+    async editMessage(req, res) {
+        try {
+            const { messageId, content } = req.body;
+            const userId = req.user.id;
+
+            const msg = await chatService.editMessage(messageId, userId, content);
+
+            // realtime
+            const io = require('../../shared/utils/socket').getIO();
+            io.to(msg.conversationId.toString()).emit("message_edited", msg);
+
+            res.json({ success: true, data: msg });
+        } catch (err) {
+            res.status(400).json({ success: false, message: err.message });
+        }
+    }
+
+    //Xóa tin nhắn
+    async deleteMessage(req, res) {
+        try {
+            const { messageId } = req.body;
+            const userId = req.user.id;
+
+            const msg = await chatService.deleteMessage(messageId, userId);
+
+            const io = require('../../shared/utils/socket').getIO();
+            io.to(msg.conversationId.toString()).emit("message_deleted", msg);
+
+            res.json({ success: true, data: msg });
+        } catch (err) {
+            res.status(400).json({ success: false, message: err.message });
+        }
+    }
+
+    //Reaction
+    async reactMessage(req, res) {
+        try {
+            const { messageId, type } = req.body;
+            const userId = req.user.id;
+
+            const updated = await chatService.toggleReaction(messageId, userId, type);
+
+            const io = require('../../shared/utils/socket').getIO();
+            io.to(updated.conversationId.toString()).emit("message_reaction", updated);
+
+            res.json({ success: true, data: updated });
+
+        } catch (err) {
+            res.status(500).json({ success: false, message: err.message });
+        }
+    }
+        
 }
 
 module.exports = new ChatController();

@@ -77,3 +77,26 @@ export const getPresignedUrl = async (data) => {
     };
   }
 };
+
+// ==============================
+// Sửa tin nhắn
+// ==============================
+export const editMessageAPI = async (data) => {
+  const res = await api.put("/chat/message/edit", data);
+  return res.data;
+};
+
+// ==============================
+// Xóa tin nhắn
+// ==============================
+export const deleteMessageAPI = async (data) => {
+  const res = await api.delete("/chat/message/delete", { data });
+  return res.data;
+};
+
+
+//Reaction
+export const reactMessageAPI = async (data) => {
+  const res = await api.post("/chat/message/react", data);
+  return res.data;
+};

@@ -20,4 +20,11 @@ router.post('/message', chatController.sendMessageAPI);
 // Endpoint lấy danh sách tất cả các phòng chat của user
 router.get('/conversations', chatController.getConversations);
 
+//Endpoint sửa, xóa tin nhắn
+router.put("/message/edit", chatController.editMessage);
+router.delete("/message/delete", chatController.deleteMessage);
+
+//Reaction
+router.post('/message/react', chatController.reactMessage);
+
 module.exports = router;
