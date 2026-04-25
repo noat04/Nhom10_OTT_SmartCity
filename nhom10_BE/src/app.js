@@ -1,74 +1,93 @@
-var express = require('express');
-var logger = require('morgan');
-// var cors = require('cors'); // (Bạn cần chạy: npm install cors)
-// Các route cần bảo mật (Protected)
-const { verifyToken } = require('../src/shared/middlewares/auth.middleware');
+require('dotenv').config();
+const express = require('express');
+const logger = require('morgan');
+const cors = require('cors');
 
-// 1. IMPORT CÁC MODULE API CỦA BẠN (Theo cấu trúc Modular)
-// Giả sử bạn đã tạo các file route trong thư mục src/modules/
-const authRoutes = require('../src/modules/auth/auth.route');
-const connectMongoDB = require('../src/shared/configs/mongodb');
-const chatRoutes = require('../src/modules/chat/chat.route');
+// Middleware auth
+const { verifyToken } = require('./shared/middlewares/auth.middleware');
+
+// Routes modules
+const authRoutes = require('./modules/auth/auth.route');
+const chatRoutes = require('./modules/chat/chat.route');
 const userRoutes = require('./modules/user/user.route');
 const friendRoutes = require('./modules/friend/friend.route');
+const uploadRoutes = require('./modules/upload/upload.route');
+// MongoDB connection
+//const connectMongoDB = require('./src/shared/configs/mongodb');
 
-var app = express();
+const app = express();
+app.use(cors({
+  origin: true, // cho phép tất cả origin (Expo, mobile, web)
+  credentials: true
+}));
 
-// ==========================================
-// 2. MIDDLEWARES (Xử lý request đầu vào)
-// ==========================================
-// app.use(cors()); // Cho phép Mobile App và Web khác domain gọi API
+app.options("*", cors());
+// app.use(cors(corsOptions));
+// app.options("*", cors(corsOptions));
+
+
 app.use(logger('dev'));
-app.use(express.json()); // Phân tích body chứa JSON
+app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-// GHI CHÚ: Đã XÓA phần view engine (pug) và thư mục static (public)
-// vì đây là API thuần, không render giao diện HTML.
+// Debug ENV (test OTP mail)
+console.log("📧 EMAIL_USER:", process.env.EMAIL_USER);
 
 // ==========================================
-// 3. ĐỊNH TUYẾN (ROUTING)
+// 2. TEST SERVER
 // ==========================================
-
-// Route kiểm tra server
-app.get('/', verifyToken,(req, res) => {
+app.get('/', (req, res) => {
   res.json({
     success: true,
-    message: "Chào mừng đến với API Hệ thống OTT Smart City Nhóm 10"
+    message: "🚀 API SmartCity đang hoạt động!"
   });
 });
 
-// Gắn các API module vào tiền tố /api
-app.use('/api/auth', authRoutes);
-app.use('/api/chat', chatRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/friends', friendRoutes);
 // ==========================================
-// 4. XỬ LÝ LỖI (ERROR HANDLING CHO API)
+// 3. ROUTES
 // ==========================================
 
-// Bắt lỗi 404 (Khi client gọi sai đường dẫn API)
-app.use(function(req, res, next) {
+// Public routes
+app.use('/api/auth', authRoutes);
+
+// Protected routes
+app.use('/api/chat', verifyToken, chatRoutes);
+app.use('/api/users', verifyToken, userRoutes);
+app.use('/api/friend', verifyToken, friendRoutes);
+app.use('/api/upload', verifyToken, uploadRoutes);
+// Test auth
+app.get('/api/test-auth', verifyToken, (req, res) => {
+  res.json({
+    success: true,
+    message: "Bạn đã đăng nhập!",
+    user: {
+      id: req.user.id,
+      email: req.user.email
+    }
+  });
+});
+
+// ==========================================
+// 4. ERROR HANDLING
+// ==========================================
+
+// 404
+app.use((req, res) => {
   res.status(404).json({
     success: false,
-    message: "Không tìm thấy API (404 Not Found)"
+    message: "❌ API không tồn tại (404)"
   });
 });
 
-// Bắt lỗi Global (Lỗi server 500 hoặc các lỗi khác)
-app.use(function(err, req, res, next) {
-  console.error(err.stack); // In lỗi ra terminal để dễ debug
+// Global error
+app.use((err, req, res, next) => {
+  console.error("🔥 ERROR:", err);
 
-  const status = err.status || 500;
-
-  // Thay vì dùng res.render('error'), ta trả về JSON
-  res.status(status).json({
+  res.status(err.status || 500).json({
     success: false,
-    message: err.message || "Lỗi máy chủ nội bộ (Internal Server Error)",
-    // Chỉ gửi chi tiết lỗi khi đang ở môi trường dev để bảo mật
-    error: req.app.get('env') === 'development' ? err : {}
+    message: err.message || "Lỗi server",
+    error: process.env.NODE_ENV === 'development' ? err : {}
   });
 });
 
-// Gọi kết nối
-connectMongoDB();
 module.exports = app;

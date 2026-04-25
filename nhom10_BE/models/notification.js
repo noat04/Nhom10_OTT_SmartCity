@@ -1,24 +1,51 @@
-'use strict';
-const { Model } = require('sequelize');
+const mongoose = require("mongoose");
 
-module.exports = (sequelize, DataTypes) => {
-  class Notification extends Model {
-    static associate(models) {
-      Notification.belongsTo(models.User, { foreignKey: 'userId' });
-    }
+const notificationSchema = new mongoose.Schema(
+  {
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
+
+    senderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+
+    type: {
+      type: String,
+      enum: [
+        "message",
+        "call",
+        "friend_request",
+        "friend_accepted",
+        "friend_rejected",
+      ],
+      required: true,
+    },
+
+    content: {
+      type: String,
+      required: true,
+    },
+
+    data: {
+      type: Object,
+      default: {},
+    },
+
+    isRead: {
+      type: Boolean,
+      default: false,
+    },
+  },
+  {
+    timestamps: { createdAt: true, updatedAt: false },
   }
-  Notification.init({
-    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
-    userId: { type: DataTypes.UUID, allowNull: false },
-    type: { type: DataTypes.ENUM('message', 'call', 'friend'), allowNull: false },
-    content: { type: DataTypes.STRING, allowNull: false },
-    isRead: { type: DataTypes.BOOLEAN, defaultValue: false }
-  }, {
-    sequelize,
-    modelName: 'Notification',
-    tableName: 'Notifications',
-    timestamps: true,
-    updatedAt: false // Tài liệu chỉ yêu cầu createdAt
-  });
-  return Notification;
-};
+);
+
+const Notification = mongoose.model("Notification", notificationSchema);
+module.exports = Notification;

@@ -1,23 +1,32 @@
-'use strict';
-const { Model } = require('sequelize');
+// models/Friend.js
+const mongoose = require('mongoose');
 
-module.exports = (sequelize, DataTypes) => {
-  class Friend extends Model {
-    static associate(models) {
-      Friend.belongsTo(models.User, { foreignKey: 'userId', as: 'sender' });
-      Friend.belongsTo(models.User, { foreignKey: 'friendId', as: 'receiver' });
-    }
+const friendSchema = new mongoose.Schema({
+  // Người gửi lời mời kết bạn (sender)
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+
+  // Người nhận lời mời kết bạn (receiver)
+  friendId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+
+  status: {
+    type: String,
+    enum: ['pending', 'accepted', 'blocked', 'rejected'],
+    default: 'pending'
   }
-  Friend.init({
-    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
-    userId: { type: DataTypes.UUID, allowNull: false },
-    friendId: { type: DataTypes.UUID, allowNull: false },
-    status: { type: DataTypes.ENUM('pending', 'accepted', 'blocked'), defaultValue: 'pending' }
-  }, {
-    sequelize,
-    modelName: 'Friend',
-    tableName: 'Friends',
-    timestamps: true
-  });
-  return Friend;
-};
+}, {
+  timestamps: true // Tự động có createdAt (ngày gửi lời mời) và updatedAt (ngày chấp nhận/chặn)
+});
+
+// Đảm bảo rằng User A chỉ có thể gửi 1 lời mời cho User B (Không tạo ra nhiều bản ghi trùng lặp)
+friendSchema.index({ userId: 1, friendId: 1 }, { unique: true });
+
+const Friend = mongoose.model('Friend', friendSchema);
+module.exports = Friend;
