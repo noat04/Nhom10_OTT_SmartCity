@@ -1,46 +1,49 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Text, TextInput, TouchableOpacity, View } from "react-native";
-import { loginSendOtpAPI } from "../../service/auth.api";
-
+import { loginAPI } from "../../service/auth.api";
+import { useAuth } from "../../context/authContext";
 export default function Login() {
   const router = useRouter();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-
+  const { login } = useAuth();
   const handleLogin = async () => {
-    if (!email || !password) {
-      alert("Vui lòng nhập đầy đủ thông tin");
+  if (!email || !password) {
+    alert("Vui lòng nhập đầy đủ thông tin");
+    return;
+  }
+
+  try {
+    setLoading(true);
+
+    const res = await loginAPI({ email, password });
+
+    const token = res.data?.token;
+    const user = res.data?.user;
+
+    if (!token || !user) {
+      alert("Đăng nhập thất bại");
       return;
     }
 
-    try {
-      setLoading(true);
+    // 🔥 QUAN TRỌNG NHẤT
+    await login(token, user);
 
-      await loginSendOtpAPI({ email, password });
+    alert("Đăng nhập thành công");
 
-      alert("OTP đã gửi về email");
+    router.replace("/(tabs)/chat");
 
-      // 👉 chuyển qua màn OTP + truyền email
-      // router.push({
-      //   pathname: "/(auth)/otp",
-      //   params: { email },
-      // });
-      router.push({
-        pathname: "/(auth)/otp",
-        params: {
-          email,
-          type: "login", // 🔥 THÊM DÒNG NÀY
-        },
-      });
-    } catch (err) {
-      alert(err.response?.data?.message || "Lỗi đăng nhập");
-    } finally {
-      setLoading(false);
-    }
-  };
+  } catch (err) {
+    console.log("LOGIN ERROR:", err);
+    alert(err.response?.data?.message || "Sai email hoặc mật khẩu");
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <View style={{ flex: 1, justifyContent: "center", padding: 20 }}>
@@ -51,6 +54,7 @@ export default function Login() {
         style={styles.input}
         value={email}
         onChangeText={setEmail}
+        autoCapitalize="none"
       />
 
       <TextInput
@@ -71,7 +75,6 @@ export default function Login() {
         <Text style={{ marginTop: 10 }}>Chưa có tài khoản? Đăng ký</Text>
       </TouchableOpacity>
 
-      {/* 🔥 QUÊN MẬT KHẨU */}
       <TouchableOpacity onPress={() => router.push("/(auth)/forgot-password")}>
         <Text style={{ color: "red", textAlign: "right", marginBottom: 10 }}>
           Quên mật khẩu?

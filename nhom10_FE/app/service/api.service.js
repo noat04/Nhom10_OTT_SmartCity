@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 // 🔥 ĐỔI IP THEO MÁY BẠN
-const LOCAL_IP = "192.168.1.16";
+const LOCAL_IP = "172.28.49.213";
 
 // 👉 Tự động chọn URL
 const BASE_URL = `http://${LOCAL_IP}:3000/api`;

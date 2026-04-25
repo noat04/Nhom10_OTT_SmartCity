@@ -1,9 +1,7 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import { Text, TextInput, TouchableOpacity, View } from "react-native";
-import { useAuth } from "../../context/authContext";
 import {
-  loginVerifyOtpAPI,
   registerVerifyOtpAPI,
   verifyResetOtpAPI,
 } from "../../service/auth.api";
@@ -11,56 +9,11 @@ import {
 export default function Otp() {
   const router = useRouter();
 
-  // ✅ CHỈ GIỮ 1 LẦN
   const { email, password, fullName, username, phone, type } =
     useLocalSearchParams();
 
   const [otp, setOtp] = useState("");
-  const { login } = useAuth();
 
-  // const handleVerify = async () => {
-  //   if (!otp) {
-  //     alert("Nhập OTP");
-  //     return;
-  //   }
-
-  //   try {
-  //     // ================= LOGIN =================
-  //     if (String(type) === "login") {
-  //       const res = await loginVerifyOtpAPI({ email, otp });
-
-  //       await login(res.data.token);
-  //       router.replace("/(tabs)/chat");
-  //     }
-
-  //     // ================= REGISTER =================
-  //     else if (String(type) === "register") {
-  //       await registerVerifyOtpAPI({
-  //         email,
-  //         otp,
-  //         password,
-  //         fullName,
-  //         username,
-  //         phone,
-  //       });
-
-  //       alert("🎉 Đăng ký thành công");
-  //       router.replace("/(auth)/login");
-  //     }
-
-  //     // ================= RESET PASSWORD =================
-  //     else if (String(type) === "reset") {
-  //       await verifyResetOtpAPI({ email, otp });
-
-  //       router.push({
-  //         pathname: "/(auth)/reset-password",
-  //         params: { email, otp },
-  //       });
-  //     }
-  //   } catch (err) {
-  //     alert(err.response?.data?.message || "Sai OTP");
-  //   }
-  // };
   const handleVerify = async () => {
     if (!otp) {
       alert("Nhập OTP");
@@ -70,19 +23,8 @@ export default function Otp() {
     try {
       const typeStr = String(type);
 
-      // ================= LOGIN =================
-      if (typeStr === "login") {
-        console.log("🔥 VERIFY LOGIN OTP");
-
-        const res = await loginVerifyOtpAPI({ email, otp });
-
-       await login(res.data.token, res.data.user);
-
-        router.replace("/(tabs)/chat");
-      }
-
       // ================= REGISTER =================
-      else if (typeStr === "register") {
+      if (typeStr === "register") {
         await registerVerifyOtpAPI({
           email,
           otp,
@@ -104,15 +46,20 @@ export default function Otp() {
           pathname: "/(auth)/reset-password",
           params: { email, otp },
         });
-      } else {
-        console.log("❌ TYPE INVALID:", type);
-        alert("Lỗi type OTP");
       }
+
+      // ❌ LOGIN OTP ĐÃ BỊ XOÁ
+      else {
+        console.log("❌ TYPE INVALID:", type);
+        alert("Chức năng OTP này không tồn tại");
+      }
+
     } catch (err) {
       console.log("❌ VERIFY ERROR:", err.response?.data || err.message);
       alert(err.response?.data?.message || "Sai OTP");
     }
   };
+
   return (
     <View style={{ flex: 1, justifyContent: "center", padding: 20 }}>
       <Text style={{ fontSize: 24, marginBottom: 20 }}>
@@ -120,7 +67,7 @@ export default function Otp() {
           ? "OTP đăng ký"
           : type === "reset"
             ? "OTP reset mật khẩu"
-            : "OTP đăng nhập"}
+            : "OTP"}
       </Text>
 
       <TextInput
@@ -128,6 +75,7 @@ export default function Otp() {
         style={styles.input}
         value={otp}
         onChangeText={setOtp}
+        keyboardType="numeric"
       />
 
       <TouchableOpacity style={styles.btn} onPress={handleVerify}>

@@ -1,11 +1,12 @@
 import { io } from "socket.io-client";
-
 let socket = null;
+
+const LOCAL_IP = "172.28.49.213";
 
 export const connectSocket = (token) => {
   if (socket) return socket;
 
-  socket = io("http://localhost:3000", {
+  socket = io(`http://${LOCAL_IP}:3000`, {
     auth: { token },
     transports: ["websocket", "polling"],
   });
@@ -14,12 +15,8 @@ export const connectSocket = (token) => {
     console.log("✅ Socket connected:", socket.id);
   });
 
-  socket.on("disconnect", (reason) => {
-    console.log("❌ Socket disconnected:", reason);
-  });
-
-  socket.on("connect_error", (err) => {
-    console.error("❌ Socket connect error:", err.message);
+  socket.on("force_logout", async () => {
+    console.log("🚨 Bị đăng xuất do login thiết bị khác");
   });
 
   return socket;
@@ -27,7 +24,6 @@ export const connectSocket = (token) => {
 
 export const getSocket = () => socket;
 
-// notification
 export const onNewNotification = (callback) => {
   if (!socket) return;
   socket.on("new_notification", callback);
@@ -38,7 +34,6 @@ export const offNewNotification = (callback) => {
   socket.off("new_notification", callback);
 };
 
-// friend realtime
 export const onFriendRequestReceived = (callback) => {
   if (!socket) return;
   socket.on("friend_request_received", callback);
@@ -77,28 +72,6 @@ export const onFriendRequestSent = (callback) => {
 export const offFriendRequestSent = (callback) => {
   if (!socket) return;
   socket.off("friend_request_sent", callback);
-};
-
-// ✅ conversation realtime
-export const onConversationCreated = (callback) => {
-  if (!socket) return;
-  socket.on("conversation_created", callback);
-};
-
-export const offConversationCreated = (callback) => {
-  if (!socket) return;
-  socket.off("conversation_created", callback);
-};
-
-// ✅ realtime update conversation list khi có tin nhắn mới
-export const onNewMessageGlobal = (callback) => {
-  if (!socket) return;
-  socket.on("newMessage_global", callback);
-};
-
-export const offNewMessageGlobal = (callback) => {
-  if (!socket) return;
-  socket.off("newMessage_global", callback);
 };
 
 export const disconnectSocket = () => {

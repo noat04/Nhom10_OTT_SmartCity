@@ -3,23 +3,23 @@ const mongoose = require('mongoose');
 
 const friendSchema = new mongoose.Schema({
   // Người gửi lời mời kết bạn (sender)
-  userId: { 
-    type: mongoose.Schema.Types.ObjectId, 
-    ref: 'User', 
-    required: true 
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
   },
-  
+
   // Người nhận lời mời kết bạn (receiver)
-  friendId: { 
-    type: mongoose.Schema.Types.ObjectId, 
-    ref: 'User', 
-    required: true 
+  friendId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
   },
-  
-  status: { 
-    type: String, 
-    enum: ['pending', 'accepted', 'blocked'], 
-    default: 'pending' 
+
+  status: {
+    type: String,
+    enum: ['pending', 'accepted', 'blocked', 'rejected'],
+    default: 'pending'
   }
 }, {
   timestamps: true // Tự động có createdAt (ngày gửi lời mời) và updatedAt (ngày chấp nhận/chặn)

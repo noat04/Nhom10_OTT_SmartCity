@@ -23,7 +23,13 @@ export const AuthProvider = ({ children }) => {
       // 👉 gọi API để sync lại
       const res = await getMeAPI();
 
-      const userData = res.data.user || res.data.data;
+      const userData = res.data?.user || res.data?.data;
+
+      // 🔥 FIX QUAN TRỌNG
+      if (!userData) {
+        console.log("⚠️ getMe không trả user → giữ user cũ");
+        return;
+      }
 
       setUser(userData);
 
@@ -36,11 +42,12 @@ export const AuthProvider = ({ children }) => {
       const socket = getSocket();
 
       if (socket) {
+        socket.off("user_updated"); // 🔥 tránh duplicate
+
         socket.on("user_updated", async (data) => {
           console.log("🔥 MOBILE USER UPDATED:", data);
 
           setUser(data.user);
-
           await AsyncStorage.setItem("user", JSON.stringify(data.user));
         });
       }

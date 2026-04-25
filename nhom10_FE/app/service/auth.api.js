@@ -1,8 +1,6 @@
 import api from "./api.service";
 
-export const loginSendOtpAPI = (data) => api.post("/auth/login/send-otp", data);
-
-export const loginVerifyOtpAPI = (data) => api.post("/auth/login/verify", data);
+export const loginAPI = (data) => api.post("/auth/login", data);
 
 export const registerSendOtpAPI = (data) =>
   api.post("/auth/register/send-otp", data);

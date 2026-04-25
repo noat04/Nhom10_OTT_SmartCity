@@ -4,7 +4,12 @@ import { useAuth } from "../context/AuthContext";
 import { updateProfile, updateAvatar } from "../api/userApi";
 import { disconnectSocket } from "../socket/socket";
 
-export default function Panel({ tab, setTab }) {
+export default function Panel({
+  tab,
+  setTab,
+  setFriendSection,
+  hasNewFriendRequest,
+}) {
   const { user, setUser } = useAuth();
 
   const [showProfile, setShowProfile] = useState(false);
@@ -12,7 +17,6 @@ export default function Panel({ tab, setTab }) {
   const [isLoading, setIsLoading] = useState(false);
   const [newAvatarFile, setNewAvatarFile] = useState(null);
 
-  // 🔥 FIELD ERRORS
   const [errors, setErrors] = useState({});
   const [success, setSuccess] = useState("");
 
@@ -20,27 +24,27 @@ export default function Panel({ tab, setTab }) {
     fullName: "",
     phone: "",
     bio: "",
-    avatarPreview: ""
+    avatarPreview: "",
   });
 
   const logout = () => {
     localStorage.clear();
     setUser(null);
     disconnectSocket();
+    window.location.href = "/login";
   };
 
-  if (!user) return null;
-
   useEffect(() => {
+    if (!user) return;
+
     setForm({
       fullName: user.fullName || "",
       phone: user.phone || "",
       bio: user.bio || "",
-      avatarPreview: user.avatar || ""
+      avatarPreview: user.avatar || "",
     });
   }, [user, showProfile]);
 
-  // 🔥 auto clear message
   useEffect(() => {
     if (!success && Object.keys(errors).length === 0) return;
 
@@ -52,7 +56,7 @@ export default function Panel({ tab, setTab }) {
     return () => clearTimeout(timer);
   }, [errors, success]);
 
-  // ================= HANDLE =================
+  if (!user) return null;
 
   const handleAvatarChange = (e) => {
     const file = e.target.files[0];
@@ -72,7 +76,7 @@ export default function Panel({ tab, setTab }) {
 
     setForm((prev) => ({
       ...prev,
-      avatarPreview: URL.createObjectURL(file)
+      avatarPreview: URL.createObjectURL(file),
     }));
 
     setErrors((prev) => ({ ...prev, avatar: "" }));
@@ -81,12 +85,12 @@ export default function Panel({ tab, setTab }) {
   const handleChange = (field, value) => {
     setForm((prev) => ({
       ...prev,
-      [field]: value
+      [field]: value,
     }));
 
     setErrors((prev) => ({
       ...prev,
-      [field]: ""
+      [field]: "",
     }));
   };
 
@@ -95,19 +99,16 @@ export default function Panel({ tab, setTab }) {
 
     const newErrors = {};
 
-    // FULL NAME
     if (!form.fullName.trim()) {
       newErrors.fullName = "Tên không được để trống";
-    } else if (form.fullName.length < 2) {
+    } else if (form.fullName.trim().length < 2) {
       newErrors.fullName = "Tên tối thiểu 2 ký tự";
     }
 
-    // PHONE
     if (form.phone && !/^(0|\+84)[0-9]{9}$/.test(form.phone)) {
       newErrors.phone = "Số điện thoại không hợp lệ";
     }
 
-    // BIO
     if (form.bio.length > 150) {
       newErrors.bio = "Bio tối đa 150 ký tự";
     }
@@ -123,19 +124,18 @@ export default function Panel({ tab, setTab }) {
     try {
       let updatedUser = user;
 
-      // AVATAR
       if (newAvatarFile) {
         const avatarRes = await updateAvatar(newAvatarFile);
 
         if (!avatarRes?.success) {
-          setErrors({ avatar: avatarRes?.message });
+          setErrors({ avatar: avatarRes?.message || "Cập nhật ảnh thất bại" });
+          setIsLoading(false);
           return;
         }
 
         updatedUser = avatarRes?.user || avatarRes?.data?.user || updatedUser;
       }
 
-      // PROFILE
       const profileRes = await updateProfile({
         fullName: form.fullName,
         phone: form.phone,
@@ -143,7 +143,8 @@ export default function Panel({ tab, setTab }) {
       });
 
       if (!profileRes?.success) {
-        setErrors({ general: profileRes?.message });
+        setErrors({ general: profileRes?.message || "Cập nhật thất bại" });
+        setIsLoading(false);
         return;
       }
 
@@ -161,50 +162,84 @@ export default function Panel({ tab, setTab }) {
 
       setIsEditing(false);
       setNewAvatarFile(null);
-
       setSuccess("Cập nhật thành công!");
     } catch (err) {
       setErrors({
-        general: err.response?.data?.message || "Có lỗi xảy ra!"
+        general: err?.response?.data?.message || "Có lỗi xảy ra!",
       });
     } finally {
       setIsLoading(false);
     }
   };
 
+  const avatarSrc =
+    form.avatarPreview ||
+    user.avatar ||
+    `https://ui-avatars.com/api/?name=${user.username || "U"}`;
+
   return (
     <>
-      {/* SIDEBAR */}
-      <div className="bg-primary d-flex flex-column justify-content-between align-items-center py-3" style={{ width: "60px" }}>
+      <div
+        className="bg-primary d-flex flex-column justify-content-between align-items-center py-3"
+        style={{ width: "60px" }}
+      >
         <div className="d-flex flex-column align-items-center">
           <img
-            src={form.avatarPreview || user.avatar || `https://ui-avatars.com/api/?name=${user.username || "U"}`}
+            src={avatarSrc}
             className="rounded-circle mb-3"
             width="40"
             height="40"
             style={{ cursor: "pointer", objectFit: "cover" }}
             onClick={() => setShowProfile(true)}
+            alt="avatar"
           />
 
-          <button className="btn text-white mb-3" onClick={() => setTab("chat")}>
+          <button
+            className={`btn text-white mb-3 ${tab === "chat" ? "fw-bold" : ""}`}
+            onClick={() => setTab("chat")}
+            title="Tin nhắn"
+          >
             <FaCommentDots size={20} />
           </button>
 
-          <button className="btn text-white" onClick={() => setTab("group")}>
-            <FaUsers size={20} />
-          </button>
+          <div className="position-relative">
+            <button
+              className={`btn text-white ${tab === "friends" ? "fw-bold" : ""}`}
+              onClick={() => {
+                setTab("friends");
+                setFriendSection("friends");
+              }}
+              title="Bạn bè"
+            >
+              <FaUsers size={20} />
+            </button>
+
+            {hasNewFriendRequest && (
+              <span
+                style={{
+                  position: "absolute",
+                  top: 2,
+                  right: 4,
+                  width: 10,
+                  height: 10,
+                  background: "red",
+                  borderRadius: "50%",
+                  border: "2px solid white",
+                }}
+              />
+            )}
+          </div>
         </div>
 
-        <button className="btn text-white" onClick={logout}>
+        <button className="btn text-white" onClick={logout} title="Đăng xuất">
           <FaSignOutAlt size={20} />
         </button>
       </div>
 
-      {/* MODAL PROFILE */}
       {showProfile && (
         <div
           className="position-fixed top-0 start-0 w-100 h-100 d-flex justify-content-center align-items-center"
-          style={{ background: "rgba(0,0,0,0.5)", zIndex: 999 }}
+          style={{ background: "rgba(0,0,0,0.5)", zIndex: 9999 }}
           onClick={() => !isEditing && setShowProfile(false)}
         >
           <div
@@ -214,7 +249,6 @@ export default function Panel({ tab, setTab }) {
           >
             <h5 className="fw-bold mb-3">Thông tin cá nhân</h5>
 
-            {/* GENERAL */}
             {errors.general && (
               <div className="alert alert-danger py-1">{errors.general}</div>
             )}
@@ -223,12 +257,13 @@ export default function Panel({ tab, setTab }) {
               <div className="alert alert-success py-1">{success}</div>
             )}
 
-            {/* AVATAR */}
             <img
-              src={form.avatarPreview || user.avatar}
+              src={avatarSrc}
               className="rounded-circle mb-2"
               width="80"
               height="80"
+              alt="avatar"
+              style={{ objectFit: "cover" }}
             />
 
             {errors.avatar && (
@@ -236,52 +271,93 @@ export default function Panel({ tab, setTab }) {
             )}
 
             {isEditing && (
-              <input type="file" className="form-control mb-3" onChange={handleAvatarChange} />
+              <input
+                type="file"
+                className="form-control mb-3"
+                onChange={handleAvatarChange}
+              />
             )}
 
-            <input className="form-control mb-2" value={user.username || ""} disabled />
-
-            {/* FULL NAME */}
             <input
-              className={`form-control mb-1 ${errors.fullName ? "is-invalid" : ""}`}
+              className="form-control mb-2"
+              value={user.username || ""}
+              disabled
+            />
+
+            <input placeholder="Full name"
+              className={`form-control mb-1 ${
+                errors.fullName ? "is-invalid" : ""
+              }`}
               value={form.fullName}
               disabled={!isEditing}
               onChange={(e) => handleChange("fullName", e.target.value)}
             />
-            {errors.fullName && <div className="text-danger small mb-2">{errors.fullName}</div>}
+            {errors.fullName && (
+              <div className="text-danger small mb-2">{errors.fullName}</div>
+            )}
 
-            <input className="form-control mb-3" value={user.email || ""} disabled />
-
-            {/* PHONE */}
             <input
-              className={`form-control mb-1 ${errors.phone ? "is-invalid" : ""}`}
+              className="form-control mb-3"
+              value={user.email || ""}
+              disabled
+            />
+
+            <input placeholder="Phone"
+              className={`form-control mb-1 ${
+                errors.phone ? "is-invalid" : ""
+              }`}
               value={form.phone}
               disabled={!isEditing}
               onChange={(e) => handleChange("phone", e.target.value)}
             />
-            {errors.phone && <div className="text-danger small mb-2">{errors.phone}</div>}
+            {errors.phone && (
+              <div className="text-danger small mb-2">{errors.phone}</div>
+            )}
 
-            {/* BIO */}
-            <textarea
+            <textarea placeholder="Bio"
               className={`form-control mb-1 ${errors.bio ? "is-invalid" : ""}`}
               value={form.bio}
               disabled={!isEditing}
               onChange={(e) => handleChange("bio", e.target.value)}
             />
-            {errors.bio && <div className="text-danger small mb-2">{errors.bio}</div>}
+            {errors.bio && (
+              <div className="text-danger small mb-2">{errors.bio}</div>
+            )}
 
-            <div className="d-flex justify-content-between">
+            <div className="d-flex justify-content-between mt-3">
               {isEditing ? (
-                <button className="btn btn-success w-50 me-1" onClick={handleSaveProfile} disabled={isLoading}>
+                <button
+                  className="btn btn-success w-50 me-1"
+                  onClick={handleSaveProfile}
+                  disabled={isLoading}
+                >
                   {isLoading ? "Đang lưu..." : "Lưu"}
                 </button>
               ) : (
-                <button className="btn btn-primary w-50 me-1" onClick={() => setIsEditing(true)}>
+                <button
+                  className="btn btn-primary w-50 me-1"
+                  onClick={() => setIsEditing(true)}
+                >
                   Sửa
                 </button>
               )}
 
-              <button className="btn btn-secondary w-50 ms-1" onClick={() => setShowProfile(false)}>
+              <button
+                className="btn btn-secondary w-50 ms-1"
+                onClick={() => {
+                  setShowProfile(false);
+                  setIsEditing(false);
+                  setNewAvatarFile(null);
+                  setErrors({});
+                  setSuccess("");
+                  setForm({
+                    fullName: user.fullName || "",
+                    phone: user.phone || "",
+                    bio: user.bio || "",
+                    avatarPreview: user.avatar || "",
+                  });
+                }}
+              >
                 Đóng
               </button>
             </div>

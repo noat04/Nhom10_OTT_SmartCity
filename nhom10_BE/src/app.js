@@ -16,36 +16,6 @@ const uploadRoutes = require('./modules/upload/upload.route');
 //const connectMongoDB = require('./src/shared/configs/mongodb');
 
 const app = express();
-
-// ==========================================
-// 1. MIDDLEWARES
-// ==========================================
-// const corsOptions = {
-//   origin: (origin, callback) => {
-//     if (!origin) return callback(null, true);
-
-//     const allowedOrigins = [
-//       "http://localhost:5173",
-//       "http://localhost:8081",
-//       "http://192.168.40.27:8081",
-//       "exp://192.168.40.27:8081",
-//       "http://192.168.40.20:8081",
-//       "exp://192.168.40.20:8081"
-//     ];
-
-//     if (
-//       allowedOrigins.includes(origin) ||
-//       origin.startsWith("http://192.168")
-//     ) {
-//       callback(null, true);
-//     } else {
-//       callback(new Error("Not allowed by CORS"));
-//     }
-//   },
-//   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-//   allowedHeaders: ["Content-Type", "Authorization"],
-//   credentials: true
-// };
 app.use(cors({
   origin: true, // cho phép tất cả origin (Expo, mobile, web)
   credentials: true
@@ -83,7 +53,7 @@ app.use('/api/auth', authRoutes);
 // Protected routes
 app.use('/api/chat', verifyToken, chatRoutes);
 app.use('/api/users', verifyToken, userRoutes);
-app.use('/api/friends', verifyToken, friendRoutes);
+app.use('/api/friend', verifyToken, friendRoutes);
 app.use('/api/upload', verifyToken, uploadRoutes);
 // Test auth
 app.get('/api/test-auth', verifyToken, (req, res) => {

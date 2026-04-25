@@ -32,19 +32,21 @@ class UserController {
 
     async checkOnlineStatus(req, res) {
         try {
-            const user = await User.findById(req.user.id).select('-password');
+            const { getOnlineUsers } = require('../../shared/utils/socket');
 
-            if (!user) {
-                return res.status(404).json({
-                    success: false,
-                    message: "Không tìm thấy user"
-                });
-            }
+            const onlineUsers = getOnlineUsers();
 
-            return res.json({ success: true, data: user });
+            const isOnline = onlineUsers.has(req.user.id);
+
+            return res.json({
+                success: true,
+                data: {
+                    userId: req.user.id,
+                    online: isOnline
+                }
+            });
 
         } catch (error) {
-            console.error(error);
             return res.status(500).json({ success: false });
         }
     }

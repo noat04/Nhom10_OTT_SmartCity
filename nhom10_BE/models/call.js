@@ -1,58 +1,79 @@
-// models/Call.js
 const mongoose = require('mongoose');
 
 const callSchema = new mongoose.Schema({
-  // Người gọi
-  callerId: { 
-    type: mongoose.Schema.Types.ObjectId, 
-    ref: 'User', 
-    required: true,
-    index: true // Đánh index để truy vấn lịch sử cuộc gọi nhanh hơn
-  },
-  
-  // Người nhận
-  receiverId: { 
-    type: mongoose.Schema.Types.ObjectId, 
-    ref: 'User', 
+  // Cuộc gọi này thuộc về đoạn chat nào
+  conversationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Conversation',
     required: true,
     index: true
   },
 
-  // 💡 MẸO TỐI ƯU CHO APP CHAT: Bạn nên bổ sung thêm trường conversationId.
-  // Lý do: Các app chat thường hiển thị bong bóng "Cuộc gọi thoại - 5 phút" 
-  // ngay bên trong khung chat (timeline). Có ID này sẽ giúp bạn dễ dàng kéo lịch sử.
-  /*
-  conversationId: { 
-    type: mongoose.Schema.Types.ObjectId, 
-    ref: 'Conversation' 
+  // Ai là người khởi xướng cuộc gọi
+  callerId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true,
+    index: true
   },
-  */
 
-  type: { 
-    type: String, 
-    enum: ['video', 'audio'], 
-    required: true 
+  // Danh sách những người tham gia (Hỗ trợ cả gọi 1-1 và gọi nhóm)
+  participants: [
+    {
+      userId: { 
+        type: mongoose.Schema.Types.ObjectId, 
+        ref: 'User',
+        index: true // 👉 Thêm index để tối ưu tốc độ tìm kiếm lịch sử
+      },
+      status: {
+        type: String,
+        enum: ['invited', 'ringing', 'joined', 'left', 'missed', 'rejected'], // Bổ sung ringing và rejected
+        default: 'invited'
+      },
+      joinTime: Date, // Tuỳ chọn: Thời điểm user này thực sự bấm bắt máy
+      leaveTime: Date // Tuỳ chọn: Thời điểm user này thoát
+    }
+  ],
+
+  //Loại cuộc gọi: video hay audio
+  type: {
+    type: String,
+    enum: ['video', 'audio'],
+    required: true
   },
-  
-  status: { 
-    type: String, 
-    // Mình gợi ý thêm trạng thái 'missed' (gọi nhỡ) vì nó rất phổ biến trong thực tế
-    enum: ['calling', 'accepted', 'rejected', 'ended', 'missed'], 
-    default: 'calling' 
+
+  // Trạng thái tổng thể của toàn bộ cuộc gọi
+  status: {
+    type: String,
+    enum: [
+      'calling',    // Đang khởi tạo kết nối
+      'ringing',    // Chuông đang reo ở phía người nhận
+      'accepted',   // Đã có người bắt máy
+      'connecting', // WebRTC đang thương lượng (ICE/SDP)
+      'ongoing',    // Đang nói chuyện
+      'ended',      // Kết thúc bình thường
+      'rejected',   // Người nhận bấm từ chối
+      'missed',     // Gọi nhưng không ai nghe máy
+      'failed'      // Lỗi hệ thống/mạng (Tùy chọn thêm)
+    ],
+    default: 'calling'
   },
-  
-  startTime: { 
-    type: Date 
+
+  startTime: Date, // Thời điểm cuộc gọi bắt đầu được tính giờ (khi chuyển sang ongoing)
+  endTime: Date,   // Thời điểm cuộc gọi tắt
+
+  duration: {
+    type: Number, // Tính bằng giây
+    default: 0    // 👉 Thêm default 0 để tránh undefined
   },
-  
-  endTime: { 
-    type: Date 
+
+  // 👉 TÙY CHỌN: Lý do kết thúc (Giúp hiển thị thông báo chi tiết trên UI)
+  endedReason: {
+    type: String,
+    enum: ['hung_up', 'timeout', 'network_error', 'declined'],
+    default: null
   }
-}, {
-  // Thay vì timestamps: false như ở Sequelize, bạn nên bật timestamps: true 
-  // để tự động có createdAt (thời điểm bắt đầu đổ chuông/tạo record)
-  timestamps: true 
-});
 
-const Call = mongoose.model('Call', callSchema);
-module.exports = Call;
+}, { timestamps: true });
+
+module.exports = mongoose.model('Call', callSchema);

@@ -2,10 +2,10 @@
 const mongoose = require('mongoose');
 
 const conversationSchema = new mongoose.Schema({
-  type: { 
-    type: String, 
-    enum: ['private', 'group'], 
-    required: true 
+  type: {
+    type: String,
+    enum: ['private', 'group'],
+    required: true
   },
   name: { type: String, default: "" },
   avatar: { type: String, default: "" },
@@ -13,20 +13,33 @@ const conversationSchema = new mongoose.Schema({
 
   members: [
     {
-      user: { 
-        type: mongoose.Schema.Types.ObjectId, 
+      user: {
+        type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
         required: true
       },
-      role: { 
-        type: String, 
-        enum: ['admin', 'member'], 
-        default: 'member' 
+      role: {
+        type: String,
+        enum: ['admin', 'member'],
+        default: 'member'
       },
-      joinedAt: { 
-        type: Date, 
-        default: Date.now 
+      joinedAt: {
+        type: Date,
+        default: Date.now
       }
+    }
+  ],
+  pinnedMessages: [
+    {
+      message: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Message'
+      },
+      pinnedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+      },
+      pinnedAt: Date
     }
   ],
 
