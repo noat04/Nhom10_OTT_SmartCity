@@ -86,6 +86,7 @@ export default function ChatScreen() {
 
       let displayName = "Cuộc trò chuyện";
       let displayAvatar = "https://i.pravatar.cc/150?img=12";
+      let partnerId = null; // 👉 BỔ SUNG BIẾN NÀY
 
       if (isGroup) {
         displayName = item?.name?.trim() || "Nhóm chat";
@@ -95,6 +96,9 @@ export default function ChatScreen() {
         const otherMember = item?.members?.find(
           (m: any) => String(m?.user?._id || m?.user) !== String(myId),
         );
+
+        // 👉 LẤY ID CỦA NGƯỜI KIA LƯU VÀO ĐÂY
+        partnerId = otherMember?.user?._id || otherMember?.user || null;
 
         displayName =
           otherMember?.user?.fullName ||
@@ -116,6 +120,7 @@ export default function ChatScreen() {
         type: item?.type,
         name: displayName,
         img: displayAvatar,
+        partnerId: partnerId, // 👉 TRẢ VỀ BIẾN NÀY
         msg: getPreviewText(latestMessage),
         updatedAt:
           latestMessage?.createdAt ||
@@ -267,11 +272,11 @@ export default function ChatScreen() {
             prev.map((item: any) =>
               String(item.conversationId) === editedConversationId
                 ? {
-                    ...item,
-                    msg: getPreviewText(message),
-                    latestMessage: message,
-                    updatedAt: item?.updatedAt || message?.createdAt,
-                  }
+                  ...item,
+                  msg: getPreviewText(message),
+                  latestMessage: message,
+                  updatedAt: item?.updatedAt || message?.createdAt,
+                }
                 : item,
             ),
           ),
@@ -290,11 +295,11 @@ export default function ChatScreen() {
             prev.map((item: any) =>
               String(item.conversationId) === deletedConversationId
                 ? {
-                    ...item,
-                    msg: "Tin nhắn đã bị xóa",
-                    latestMessage: message,
-                    updatedAt: item?.updatedAt || message?.createdAt,
-                  }
+                  ...item,
+                  msg: "Tin nhắn đã bị xóa",
+                  latestMessage: message,
+                  updatedAt: item?.updatedAt || message?.createdAt,
+                }
                 : item,
             ),
           ),
@@ -350,6 +355,7 @@ export default function ChatScreen() {
             name: item.name,
             avatar: item.img,
             type: item.type,
+            partnerId: item.partnerId, // Truyền userId của người kia để tiện cho việc gọi video, nếu là nhóm thì truyền conversationId cũng được vì bên CallScreen sẽ không cần lấy thông tin người kia nữa
           },
         })
       }

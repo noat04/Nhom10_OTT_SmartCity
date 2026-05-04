@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { FaCommentDots, FaUsers, FaSignOutAlt } from "react-icons/fa";
+// 👉 Thêm FaRobot vào import
+import { FaCommentDots, FaUsers, FaSignOutAlt, FaRobot } from "react-icons/fa";
 import { useAuth } from "../context/AuthContext";
 import { updateProfile, updateAvatar } from "../api/userApi";
 import { disconnectSocket } from "../socket/socket";
@@ -194,6 +195,7 @@ export default function Panel({
             alt="avatar"
           />
 
+          {/* TAB CHAT */}
           <button
             className={`btn text-white mb-3 ${tab === "chat" ? "fw-bold" : ""}`}
             onClick={() => setTab("chat")}
@@ -202,7 +204,8 @@ export default function Panel({
             <FaCommentDots size={20} />
           </button>
 
-          <div className="position-relative">
+          {/* TAB BẠN BÈ */}
+          <div className="position-relative mb-3">
             <button
               className={`btn text-white ${tab === "friends" ? "fw-bold" : ""}`}
               onClick={() => {
@@ -229,6 +232,16 @@ export default function Panel({
               />
             )}
           </div>
+
+          {/* 👉 BỔ SUNG: TAB AI TRỢ LÝ ẢO */}
+          <button
+            className={`btn text-white mb-3 ${tab === "ai" ? "fw-bold" : ""}`}
+            onClick={() => setTab("ai")}
+            title="Trợ lý AI"
+          >
+            <FaRobot size={22} color={tab === "ai" ? "#ffc107" : "white"} />
+          </button>
+
         </div>
 
         <button className="btn text-white" onClick={logout} title="Đăng xuất">

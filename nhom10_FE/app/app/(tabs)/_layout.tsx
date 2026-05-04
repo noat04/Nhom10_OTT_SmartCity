@@ -78,6 +78,15 @@ export default function TabLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="ai"
+        options={{
+          title: "Trợ lý ảo",
+          tabBarIcon: ({ color, size = 22 }) => (
+            <Ionicons name="rocket" size={size} color={color} />
+          ),
+        }}
+      />
 
       <Tabs.Screen
         name="profile"

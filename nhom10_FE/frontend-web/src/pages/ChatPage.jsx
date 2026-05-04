@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import Sidebar from "../components/Sidebar";
 import ChatBox from "../components/Chatbox";
 import Panel from "../components/Panel";
+import ChatAI from "../components/ChatAI";
 import { getConversations } from "../api/chatApi";
 import { getFriendRequestsAPI } from "../api/friendAPI";
 import { useNavigate } from "react-router-dom";
@@ -14,6 +15,7 @@ import {
   onFriendRequestReceived,
   offFriendRequestReceived,
 } from "../socket/socket";
+import { FaUserPlus, FaRobot, FaPlus, FaTrash } from "react-icons/fa";
 
 export default function ChatPage() {
   const [contacts, setContacts] = useState([]);
@@ -23,6 +25,7 @@ export default function ChatPage() {
   const [friendSection, setFriendSection] = useState("friends");
   const [hasNewFriendRequest, setHasNewFriendRequest] = useState(false);
   const [showAddFriendModal, setShowAddFriendModal] = useState(false);
+  const [aiReloadTrigger, setAiReloadTrigger] = useState(0);
 
   const navigate = useNavigate();
 
@@ -34,6 +37,15 @@ export default function ChatPage() {
   useEffect(() => {
     localStorage.setItem("unreadMap", JSON.stringify(unreadMap));
   }, [unreadMap]);
+
+  const handleNewSessionCreated = async (newSessionId) => {
+    setSelected(prev => ({
+      ...prev,
+      _id: newSessionId,
+      isNew: false
+    }));
+    setAiReloadTrigger(prev => prev + 1);
+  };
 
   const currentUser = (() => {
     try {
@@ -264,7 +276,6 @@ export default function ChatPage() {
           ...oldItem,
           latestMessage: message,
           updatedAt: message?.createdAt || new Date().toISOString(),
-          // giữ nguyên name/avatar cũ để không bị nhảy sang chính mình
           name: oldItem?.name,
           avatar: oldItem?.avatar,
         };
@@ -284,12 +295,10 @@ export default function ChatPage() {
             ? message?.senderId?._id || message?.senderId?.id
             : message?.senderId;
 
-        // không cộng badge cho chính tin nhắn mình gửi
         if (String(senderId) === String(currentUserId)) {
           return prev;
         }
 
-        // nếu đang mở đúng conversation đó thì không cộng
         if (String(currentSelectedId) === incomingConversationId) {
           return prev;
         }
@@ -348,22 +357,41 @@ export default function ChatPage() {
           showAddFriendModal={showAddFriendModal}
           setShowAddFriendModal={setShowAddFriendModal}
           unreadMap={unreadMap}
+          reloadTrigger={aiReloadTrigger}
           setSelected={(c) => {
+            // 👉 BƯỚC SỬA LỖI: Thêm optional chaining (?) cho c
             setSelected(c);
-            setUnreadMap((prev) => ({
-              ...prev,
-              [c._id]: 0,
-            }));
+            const id = c?._id || c?.conversationId;
+            if (id) {
+              setUnreadMap((prev) => ({
+                ...prev,
+                [id]: 0,
+              }));
+            }
           }}
         />
 
-        <ChatBox
-          selected={selected}
-          tab={tab}
-          friendSection={friendSection}
-          setHasNewFriendRequest={setHasNewFriendRequest}
-          setUnreadMap={setUnreadMap}
-        />
+        {!selected ? (
+          <div className="col-9 d-flex justify-content-center align-items-center bg-light">
+            <div className="text-center">
+              <FaRobot size={50} className="text-muted mb-3" />
+              <p className="text-muted">Chọn một cuộc trò chuyện để bắt đầu.</p>
+            </div>
+          </div>
+        ) : selected?.isAI ? (
+          <ChatAI
+            selected={selected}
+            onNewSessionCreated={handleNewSessionCreated}
+          />
+        ) : (
+          <ChatBox
+            selected={selected}
+            tab={tab}
+            friendSection={friendSection}
+            setHasNewFriendRequest={setHasNewFriendRequest}
+            setUnreadMap={setUnreadMap}
+          />
+        )}
       </div>
     </div>
   );
