@@ -1,29 +1,66 @@
 import React, { useEffect, useState } from "react";
 import Sidebar from "../components/Sidebar";
 import ChatBox from "../components/Chatbox";
+import ChatGroupBox from "../components/ChatGroupBox";
 import Panel from "../components/Panel";
 import { getConversations } from "../api/chatApi";
 import { getFriendRequestsAPI } from "../api/friendAPI";
 import { useNavigate } from "react-router-dom";
-import {
-  connectSocket,
-  onConversationCreated,
-  offConversationCreated,
-  onFriendRequestReceived,
-  offFriendRequestReceived,
-} from "../socket/socket";
+import { 
+  connectSocket, 
+  onConversationUpdated,
+  onGroupCreated,
+  onGroupInfoUpdated,
+  onGroupMembersAdded,
+  onGroupMemberRemoved,
+  onGroupLeft, } from "../socket/socket";
 
 export default function ChatPage() {
   const [contacts, setContacts] = useState([]);
+
+
   const [selected, setSelected] = useState(null);
   const [tab, setTab] = useState("chat");
 
-  const [friendSection, setFriendSection] = useState("friends");
+  const [friendSection, setFriendSection] = useState("friends"); // "friends" | "requests"
   const [hasNewFriendRequest, setHasNewFriendRequest] = useState(false);
   const [showAddFriendModal, setShowAddFriendModal] = useState(false);
 
+  const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
+
   const navigate = useNavigate();
 
+  const updateLastMessage = (msg) => {
+    setContacts((prev) => {
+      const msgConvId =
+        typeof msg.conversationId === "object"
+          ? msg.conversationId._id
+          : msg.conversationId;
+
+      let updated = prev.map((chat) => {
+        const chatId = chat.conversationId || chat._id;
+
+        if (String(chatId) === String(msgConvId)) {
+          return {
+            ...chat,
+            latestMessage: msg,
+            updatedAt: msg.createdAt || new Date().toISOString(),
+          };
+        }
+
+        return chat;
+      });
+
+      // ⭐ QUAN TRỌNG: ĐẨY CHAT MỚI NHẤT LÊN ĐẦU
+      updated.sort(
+        (a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0)
+      );
+
+      return [...updated];
+    });
+  };
+
+  //notification
   const [unreadMap, setUnreadMap] = useState(() => {
     const saved = localStorage.getItem("unreadMap");
     return saved ? JSON.parse(saved) : {};
@@ -33,53 +70,6 @@ export default function ChatPage() {
     localStorage.setItem("unreadMap", JSON.stringify(unreadMap));
   }, [unreadMap]);
 
-  const currentUser = (() => {
-    try {
-      const raw = localStorage.getItem("user");
-      return raw ? JSON.parse(raw) : null;
-    } catch {
-      return null;
-    }
-  })();
-
-  const normalizeConversation = (conversation) => {
-    if (!conversation) return null;
-
-    const isGroup = conversation.type === "group";
-
-    let name = "Cuộc trò chuyện";
-    let avatar = "https://i.pravatar.cc/50";
-
-    if (isGroup) {
-      name = conversation.name?.trim() || "Nhóm chat";
-      avatar = conversation.avatar?.trim() || avatar;
-    } else {
-      const otherMember = conversation.members?.find(
-        (m) => String(m?.user?._id || m?.user) !== String(currentUser?._id)
-      );
-
-      name =
-        otherMember?.user?.fullName ||
-        otherMember?.user?.name ||
-        otherMember?.user?.username ||
-        "Người dùng";
-
-      avatar =
-        otherMember?.user?.avatar ||
-        otherMember?.user?.profilePicture ||
-        avatar;
-    }
-
-    return {
-      ...conversation,
-      _id: conversation._id,
-      conversationId: conversation._id,
-      name,
-      avatar,
-      latestMessage: conversation.latestMessage || null,
-      updatedAt: conversation.updatedAt || new Date().toISOString(),
-    };
-  };
 
   const loadChats = async () => {
     const res = await getConversations();
@@ -111,6 +101,7 @@ export default function ChatPage() {
   };
 
   useEffect(() => {
+
     const token = localStorage.getItem("token");
 
     if (!token) {
@@ -121,61 +112,38 @@ export default function ChatPage() {
     connectSocket(token);
     loadChats();
     loadFriendRequestBadge();
-  }, [navigate]);
 
-  // realtime conversation mới cho cả sender + receiver
-  useEffect(() => {
-    const handleConversationCreated = (payload) => {
-      const conversation = payload?.data || payload;
-      if (!conversation?._id) return;
-
-      const normalized = normalizeConversation(conversation);
-      if (!normalized) return;
-
-      setContacts((prev) => {
-        const exists = prev.some(
-          (item) => String(item._id) === String(normalized._id)
-        );
-
-        if (exists) {
-          return prev.map((item) =>
-            String(item._id) === String(normalized._id)
-              ? { ...item, ...normalized }
-              : item
-          );
-        }
-
-        return [normalized, ...prev];
-      });
+    const refreshChats = () => {
+      loadChats();
     };
 
-    onConversationCreated(handleConversationCreated);
+    onConversationUpdated(refreshChats);
+    onGroupCreated(refreshChats);
+    onGroupInfoUpdated(refreshChats);
+    onGroupMembersAdded(refreshChats);
+    onGroupMemberRemoved(refreshChats);
+    onGroupLeft(refreshChats);
 
     return () => {
-      offConversationCreated(handleConversationCreated);
+      // optional cleanup
     };
+
   }, []);
 
-  // realtime badge lời mời
-  useEffect(() => {
-    const handleFriendRequestReceived = () => {
-      if (!(tab === "friends" && friendSection === "requests")) {
-        setHasNewFriendRequest(true);
-      }
-    };
-
-    onFriendRequestReceived(handleFriendRequestReceived);
-
-    return () => {
-      offFriendRequestReceived(handleFriendRequestReceived);
-    };
-  }, [tab, friendSection]);
-
+  // vào đúng mục lời mời thì tắt chấm đỏ
   useEffect(() => {
     if (tab === "friends" && friendSection === "requests") {
       setHasNewFriendRequest(false);
     }
   }, [tab, friendSection]);
+
+  useEffect(() => {
+    window.updateLastMessage = updateLastMessage;
+
+    return () => {
+      delete window.updateLastMessage;
+    };
+  }, [contacts]);
 
   return (
     <div className="container-fluid vh-100 overflow-hidden">
@@ -196,7 +164,10 @@ export default function ChatPage() {
           hasNewFriendRequest={hasNewFriendRequest}
           showAddFriendModal={showAddFriendModal}
           setShowAddFriendModal={setShowAddFriendModal}
+          showCreateGroupModal={showCreateGroupModal}
+          setShowCreateGroupModal={setShowCreateGroupModal}
           unreadMap={unreadMap}
+          loadChats={loadChats}
           setSelected={(c) => {
             setSelected(c);
             setUnreadMap((prev) => ({
@@ -206,13 +177,27 @@ export default function ChatPage() {
           }}
         />
 
-        <ChatBox
-          selected={selected}
-          tab={tab}
-          friendSection={friendSection}
-          setHasNewFriendRequest={setHasNewFriendRequest}
-          setUnreadMap={setUnreadMap}
-        />
+        {selected ? (
+          selected.type === "group" ? (
+            <ChatGroupBox
+              selected={selected}
+              setUnreadMap={setUnreadMap}
+              loadChats={loadChats}
+            />
+          ) : (
+            <ChatBox
+              selected={selected}
+              tab={tab}
+              friendSection={friendSection}
+              setHasNewFriendRequest={setHasNewFriendRequest}
+              setUnreadMap={setUnreadMap}
+            />
+          )
+        ) : (
+          <div className="col d-flex justify-content-center align-items-center text-muted">
+            Chọn cuộc trò chuyện để bắt đầu
+          </div>
+        )}
       </div>
     </div>
   );

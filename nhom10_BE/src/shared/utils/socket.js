@@ -5,7 +5,10 @@ const chatService = require('../../modules/chat/chat.service');
 // 1. Sửa đường dẫn import User Model (Xóa Sequelize)
 const User = require('../../../models/user');
 const callSocketHandler = require('../utils/socket/call.socket');
+const groupChatSocket = require('./socket/groupChat.socket');
 const onlineUsers = new Map();
+
+
 let io;
 
 module.exports = {
@@ -45,25 +48,7 @@ module.exports = {
 
             //tất cả thiết bị (web + mobile + tab) đều join vào room đó
             socket.join(userId);
-            // console.log(`✅ Client connected: ${socket.id} - User ID: ${userId}`);
-
-            // // Gắn handler cuộc gọi
-            // callSocketHandler(io, socket);
-
-            // // 1. USER ONLINE (Mongoose)
-            // try {
-            //     // Thay thế where: {id: ...} bằng findByIdAndUpdate
-            //     await User.findByIdAndUpdate(userId, { status: 'online' });
-            //     socket.broadcast.emit('user_status_changed', { userId, status: 'online' });
-            // } catch (error) {
-            //     console.error("Lỗi cập nhật trạng thái Online:", error);
-            // }
-
-            // // Lắng nghe sự kiện báo online từ client
-            // socket.on("userOnline", (incomingUserId) => {
-            //     onlineUsers.set(incomingUserId.toString(), socket.id);
-            //     io.emit("updateOnlineUsers", Array.from(onlineUsers.keys()));
-            // });
+            
             await User.findByIdAndUpdate(userId, {
                 status: 'online'
             });
@@ -86,18 +71,50 @@ module.exports = {
             // Gắn handler cuộc gọi
             callSocketHandler(io, socket);
 
+            // Gắn handler group chat
+            groupChatSocket(io, socket, userId);
+
+            socket.currentConversationId = null;
+
             // 2. THAM GIA PHÒNG CHAT (Nhớ toString conversationId)
-            socket.on('joinConversation', (conversationId) => {
+            socket.on('joinConversation', async (conversationId) => {
+                if (!conversationId) return;
+
                 const roomId = conversationId.toString();
+
+                if (socket.currentConversationId === roomId) return;
+
+                if (socket.currentConversationId) {
+                    socket.leave(socket.currentConversationId);
+                    console.log(`User ${userId} đã rời phòng: ${socket.currentConversationId}`);
+                }
+
                 socket.join(roomId);
+                socket.currentConversationId = roomId;
+
+                await chatService.markAsDelivered(conversationId, userId);
+
+                const viewer = await User.findById(userId).select("fullName avatar");
+
+                io.to(roomId).emit("message_delivered", {
+                    conversationId: roomId,
+                    user: viewer,
+                    deliveredAt: new Date(),
+                });
                 console.log(`User ${userId} đã vào phòng: ${roomId}`);
             });
 
             // 3. RỜI PHÒNG CHAT
             socket.on('leaveConversation', (conversationId) => {
+                if (!conversationId) return;
+
                 const roomId = conversationId.toString();
-                socket.leave(roomId);
-                console.log(`User ${userId} đã rời phòng: ${roomId}`);
+
+                if (socket.currentConversationId === roomId) {
+                    socket.leave(roomId);
+                    socket.currentConversationId = null;
+                    console.log(`User ${userId} đã rời phòng: ${roomId}`);
+                }
             });
 
             // 4. TRẠNG THÁI ĐANG GÕ PHÍM
@@ -115,33 +132,30 @@ module.exports = {
                     data.senderId = userId;
                     const savedMessage = await chatService.saveMessage(data);
 
-                    // Phát sự kiện 'newMessage' vào đúng room
                     io.to(data.conversationId.toString()).emit('newMessage', savedMessage);
+
+                    const Conversation = require('../../../models/conversation');
+                    const conv = await Conversation.findById(data.conversationId);
+
+                    conv.members.forEach(m => {
+                        io.to(m.user.toString()).emit("newMessage_global", savedMessage);
+                    });
+
                 } catch (error) {
                     console.error("Lỗi gửi tin nhắn:", error.message);
                     socket.emit("error", "Không thể gửi tin nhắn!");
                 }
             });
 
-            // 6. XỬ LÝ SEEN (Đã xem)
-            // socket.on("seen", async ({ conversationId }) => {
-            //     try {
-            //         console.log(`User ${userId} đã xem phòng ${conversationId}`);
-            //         socket.to(conversationId.toString()).emit("user_seen_messages", { 
-            //             conversationId, 
-            //             userId
-            //         });
-            //     } catch (error) {
-            //         console.error("Lỗi seen:", error);
-            //     }
-            // });
             socket.on("seen", async ({ conversationId }) => {
                 try {
                     await chatService.markAsSeen(conversationId, userId);
 
+                    const seenMessages = await chatService.markAsSeen(conversationId, userId);
+
                     io.to(conversationId.toString()).emit("message_seen", {
                         conversationId,
-                        userId
+                        seenMessages
                     });
                 } catch (error) {
                     console.error("Lỗi seen:", error);
@@ -162,34 +176,6 @@ module.exports = {
                 }
             });
 
-            // 8. SỰ KIỆN NGẮT KẾT NỐI
-            // socket.on('disconnect', async () => {
-            //     console.log(`❌ Client disconnected: ${socket.id} - User ID: ${userId}`);
-
-            //     try {
-            //         // Xóa khỏi Map online
-            //         if (onlineUsers.has(userId)) {
-            //             onlineUsers.delete(userId);
-            //             io.emit("updateOnlineUsers", Array.from(onlineUsers.keys()));
-            //         }
-
-            //         // Cập nhật Database (Mongoose) thành Offline
-            //         const currentTime = new Date();
-            //         await User.findByIdAndUpdate(userId, {
-            //             status: 'offline',
-            //             lastSeen: currentTime
-            //         });
-
-            //         // Phát sóng cho mọi người biết
-            //         socket.broadcast.emit('user_status_changed', {
-            //             userId: userId,
-            //             status: 'offline',
-            //             lastSeen: currentTime
-            //         });
-            //     } catch (error) {
-            //         console.error("Lỗi cập nhật trạng thái Offline:", error);
-            //     }
-            // });
             socket.on('disconnect', async () => {
                 console.log(`❌ Client disconnected: ${socket.id} - User ID: ${userId}`);
 

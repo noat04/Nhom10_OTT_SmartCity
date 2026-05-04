@@ -40,14 +40,19 @@ class ChatService {
         const newMessage = await Message.create({
             ...data,
             status: 'sent',
-            replyTo: data.replyTo || null // ✅ thêm reply
+            replyTo: data.replyTo || null,
+            mentions: data.mentions || [],
+            systemType: data.systemType || null,
+            deliveredTo: [],
+            seenBy: []
         });
 
         await Conversation.findByIdAndUpdate(data.conversationId, {
-            latestMessage: newMessage._id
+            latestMessage: newMessage._id,
+            updatedAt: new Date()
         });
 
-        // FILE upload (giữ nguyên)
+        // ================= FILE STORAGE =================
         if (data.fileUrl) {
             let fileExtType = 'file';
             if (data.type === 'image') fileExtType = 'image';
@@ -64,16 +69,19 @@ class ChatService {
             });
         }
 
-        // ✅ populate reply
         return await Message.findById(newMessage._id)
             .populate('senderId', 'fullName avatar')
+            .populate('mentions', 'fullName avatar')
             .populate({
                 path: 'replyTo',
                 populate: {
                     path: 'senderId',
                     select: 'fullName avatar'
                 }
-            });
+            })
+            .populate('reactions.userId', 'fullName avatar')
+            .populate('seenBy.userId', 'fullName avatar')
+            .populate('deliveredTo.userId', 'fullName avatar');
     }
 
     // ==============================
@@ -110,7 +118,10 @@ class ChatService {
                     select: 'fullName avatar'
                 }
             })
-            .sort({ createdAt: -1 }) // mới → cũ
+            .populate('seenBy.userId', 'fullName avatar')
+            .populate('deliveredTo.userId', 'fullName avatar')
+            .populate('reactions.userId', 'fullName avatar')
+            .sort({ createdAt: -1 })
             .limit(limit);
 
         const hasMore = messages.length === limit;
@@ -130,11 +141,19 @@ class ChatService {
             'members.user': userId
         })
             .populate('members.user', 'fullName avatar status')
-            .populate('latestMessage')
+            .populate({
+                path: 'latestMessage',
+                populate: {
+                    path: 'senderId',
+                    select: 'fullName avatar'
+                }
+            })
             .sort({ updatedAt: -1 })
             .lean();
 
         return conversations.map(c => {
+
+            // ================= PRIVATE CHAT =================
             if (c.type === 'private') {
                 const partner = c.members.find(
                     m => m.user._id.toString() !== userId.toString()
@@ -145,6 +164,12 @@ class ChatService {
                     c.avatar = partner.avatar;
                 }
             }
+
+            // ================= GROUP CHAT =================
+            if (c.type === 'group') {
+                c.memberCount = c.members.length;
+            }
+
             return c;
         });
     }
@@ -187,10 +212,10 @@ class ChatService {
             {
                 conversationId,
                 senderId: { $ne: userId },
-                status: { $ne: 'seen' }
+                "seenBy.userId": { $ne: userId }
             },
             {
-                status: 'seen',
+                status: "seen",
                 $push: {
                     seenBy: {
                         userId,
@@ -199,6 +224,11 @@ class ChatService {
                 }
             }
         );
+
+        return await Message.find({
+            conversationId,
+            senderId: { $ne: userId }
+        }).populate("seenBy.userId", "fullName avatar");
     }
 
     //Sửa tin nhắn
@@ -336,6 +366,299 @@ class ChatService {
                 }
             });
     }
+
+    //==========Chat Group==========
+
+    async createGroupConversation(adminId, name, memberIds = [], avatar = "") {
+        const uniqueMembers = [...new Set([adminId.toString(), ...memberIds.map(id => id.toString())])];
+
+        const members = uniqueMembers.map(id => ({
+            user: id,
+            role: id.toString() === adminId.toString() ? 'admin' : 'member'
+        }));
+
+        const newGroup = await Conversation.create({
+            type: 'group',
+            name: name || "Nhóm mới",
+            avatar,
+            createdBy: adminId,
+            members
+        });
+
+        const systemMsg = await this.createSystemMessage(
+            newGroup._id,
+            adminId,
+            "đã tạo nhóm",
+            "create_group"
+        );
+
+        await Conversation.findByIdAndUpdate(newGroup._id, {
+            latestMessage: systemMsg._id
+        });
+
+        return await Conversation.findById(newGroup._id)
+            .populate("members.user", "fullName avatar status")
+            .populate("latestMessage");
+    }
+
+    async addMembersToGroup(conversationId, adminId, newMemberIds = []) {
+        const conversation = await Conversation.findById(conversationId);
+
+        if (!conversation) throw new Error("Nhóm không tồn tại");
+
+        const admin = conversation.members.find(
+            m => m.user.toString() === adminId.toString()
+        );
+
+        if (!admin || admin.role !== 'admin') {
+            throw new Error("Chỉ admin mới được thêm thành viên");
+        }
+
+        const addedUsers = [];
+
+        newMemberIds.forEach(id => {
+            const exists = conversation.members.some(
+                m => m.user.toString() === id.toString()
+            );
+
+            if (!exists) {
+                conversation.members.push({
+                    user: id,
+                    role: 'member'
+                });
+                addedUsers.push(id);
+            }
+        });
+
+        await conversation.save();
+
+        if (addedUsers.length > 0) {
+            await this.createSystemMessage(
+                conversationId,
+                adminId,
+                `đã thêm ${addedUsers.length} thành viên vào nhóm`,
+                "add_member"
+            );
+        }
+
+        return await Conversation.findById(conversationId)
+            .populate("members.user", "fullName avatar status")
+            .populate("latestMessage");
+    }
+
+    async removeMemberFromGroup(conversationId, adminId, memberId) {
+        const conversation = await Conversation.findById(conversationId);
+
+        if (!conversation) throw new Error("Nhóm không tồn tại");
+
+        const admin = conversation.members.find(
+            m => m.user.toString() === adminId.toString()
+        );
+
+        if (!admin || admin.role !== 'admin') {
+            throw new Error("Chỉ admin mới được xóa thành viên");
+        }
+
+        conversation.members = conversation.members.filter(
+            m => m.user.toString() !== memberId.toString()
+        );
+
+        await conversation.save();
+
+        await this.createSystemMessage(
+            conversationId,
+            adminId,
+            "đã xóa một thành viên khỏi nhóm",
+            "remove_member"
+        );
+
+        return await Conversation.findById(conversationId)
+            .populate("members.user", "fullName avatar status")
+            .populate("latestMessage");
+    }
+
+    async leaveGroup(conversationId, userId) {
+        const conversation = await Conversation.findById(conversationId);
+
+        if (!conversation) throw new Error("Nhóm không tồn tại");
+
+        conversation.members = conversation.members.filter(
+            m => m.user.toString() !== userId.toString()
+        );
+
+        await conversation.save();
+
+        await this.createSystemMessage(
+            conversationId,
+            userId,
+            "đã rời khỏi nhóm",
+            "leave_group"
+        );
+
+        return await Conversation.findById(conversationId)
+            .populate("members.user", "fullName avatar status")
+            .populate("latestMessage");
+    }
+
+    async updateGroupInfo(conversationId, adminId, name, avatar) {
+        const conversation = await Conversation.findById(conversationId);
+
+        if (!conversation) throw new Error("Nhóm không tồn tại");
+
+        const admin = conversation.members.find(
+            m => m.user.toString() === adminId.toString()
+        );
+
+        if (!admin || admin.role !== 'admin') {
+            throw new Error("Chỉ admin mới được sửa thông tin nhóm");
+        }
+
+        if (name) conversation.name = name;
+        if (avatar) conversation.avatar = avatar;
+
+        await conversation.save();
+
+        await this.createSystemMessage(
+            conversationId,
+            adminId,
+            "đã cập nhật thông tin nhóm",
+            "rename_group"
+        );
+
+        return await Conversation.findById(conversationId)
+            .populate("members.user", "fullName avatar status")
+            .populate("latestMessage");
+    }
+
+    async getGroupMembers(conversationId) {
+        const conversation = await Conversation.findById(conversationId)
+            .populate("members.user", "fullName avatar status");
+
+        if (!conversation) throw new Error("Nhóm không tồn tại");
+
+        return conversation.members;
+    }
+
+    async createSystemMessage(conversationId, senderId, content, systemType) {
+        const msg = await Message.create({
+            conversationId,
+            senderId,
+            content,
+            type: "system",
+            systemType,
+            status: "sent"
+        });
+
+        await Conversation.findByIdAndUpdate(conversationId, {
+            latestMessage: msg._id
+        });
+
+        return await Message.findById(msg._id)
+            .populate("senderId", "fullName avatar");
+    }
+
+    async unsendMessage(messageId, userId) {
+        const message = await Message.findById(messageId);
+
+        if (!message) throw new Error("Tin nhắn không tồn tại");
+
+        if (message.senderId.toString() !== userId.toString()) {
+            throw new Error("Không có quyền thu hồi");
+        }
+
+        message.content = "Tin nhắn đã được thu hồi";
+        message.isUnsent = true;
+        message.unsentAt = new Date();
+
+        await message.save();
+
+        return await Message.findById(messageId)
+            .populate("senderId", "fullName avatar");
+    }
+
+    async markAsDelivered(conversationId, userId) {
+        await Message.updateMany(
+            {
+                conversationId,
+                senderId: { $ne: userId },
+                "deliveredTo.userId": { $ne: userId }
+            },
+            {
+                $push: {
+                    deliveredTo: {
+                        userId,
+                        deliveredAt: new Date()
+                    }
+                }
+            }
+        );
+    }
+
+    async getGroupInfo(conversationId) {
+        const conversation = await Conversation.findById(conversationId)
+            .populate("members.user", "fullName avatar status")
+            .populate("createdBy", "fullName avatar")
+            .populate({
+                path: "latestMessage",
+                populate: {
+                    path: "senderId",
+                    select: "fullName avatar"
+                }
+            });
+
+        if (!conversation) {
+            throw new Error("Nhóm không tồn tại");
+        }
+
+        if (conversation.type !== "group") {
+            throw new Error("Đây không phải nhóm chat");
+        }
+
+        return conversation;
+    }
+
+    async promoteAdmin(conversationId, currentAdminId, targetUserId) {
+        const conversation = await Conversation.findById(conversationId);
+
+        if (!conversation) throw new Error("Nhóm không tồn tại");
+
+        const currentAdmin = conversation.members.find(
+            m => m.user.toString() === currentAdminId.toString()
+        );
+
+        if (!currentAdmin || currentAdmin.role !== "admin") {
+            throw new Error("Chỉ admin hiện tại mới có quyền chuyển quyền");
+        }
+
+        const targetMember = conversation.members.find(
+            m => m.user.toString() === targetUserId.toString()
+        );
+
+        if (!targetMember) {
+            throw new Error("Người được chuyển quyền không ở trong nhóm");
+        }
+
+        // hạ admin cũ xuống member
+        currentAdmin.role = "member";
+
+        // nâng target lên admin
+        targetMember.role = "admin";
+
+        await conversation.save();
+
+        await this.createSystemMessage(
+            conversationId,
+            currentAdminId,
+            "đã chuyển quyền admin cho thành viên khác",
+            "promote_admin"
+        );
+
+        return await Conversation.findById(conversationId)
+            .populate("members.user", "fullName avatar status")
+            .populate("latestMessage");
+    }
+
+
 }
 
 module.exports = new ChatService();

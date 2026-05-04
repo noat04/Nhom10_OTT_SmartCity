@@ -120,6 +120,22 @@ export const editMessageAPI = async (data) => {
 };
 
 // ==============================
+// Thu hồi tin nhắn
+// ==============================
+export const unsendMessageAPI = async (data) => {
+  try {
+    const res = await api.put("/chat/message/unsend", data);
+    return res.data;
+  } catch (err) {
+    console.error("❌ unsendMessageAPI:", err?.response?.data || err.message);
+    return {
+      success: false,
+      message: err?.response?.data?.message || "Thu hồi thất bại",
+    };
+  }
+};
+
+// ==============================
 // Xóa tin nhắn
 // ==============================
 export const deleteMessageAPI = async (data) => {
@@ -148,6 +164,92 @@ export const pinMessageAPI = (conversationId, messageId) => {
     messageId,
   });
 };
-export const getPinnedMessagesAPI = (conversationId) => {
-  return api.get(`/chat/message/pinned/${conversationId}`);
+
+export const getPinnedMessagesAPI = async (conversationId) => {
+  try {
+    const res = await api.get(`/chat/message/pinned/${conversationId}`);
+    return res.data;
+  } catch (err) {
+    console.error("❌ getPinnedMessagesAPI:", err?.response?.data || err.message);
+    return { success: false, data: [] };
+  }
+};
+
+// ==============================
+// GROUP CHAT APIs
+// ==============================
+export const getGroupInfoAPI = async (conversationId) => {
+  try {
+    const res = await api.get(`/chat/group/${conversationId}/info`);
+    return res.data;
+  } catch (err) {
+    console.error("❌ getGroupInfoAPI:", err?.response?.data || err.message);
+    return { success: false, data: null };
+  }
+};
+
+export const addMembersAPI = async (data) => {
+  try {
+    const res = await api.post("/chat/group/add-members", data);
+    return res.data;
+  } catch (err) {
+    console.error("❌ addMembersAPI:", err?.response?.data || err.message);
+    return { success: false };
+  }
+};
+
+export const removeMemberAPI = async (data) => {
+  try {
+    const res = await api.post("/chat/group/remove-member", data);
+    return res.data;
+  } catch (err) {
+    console.error("❌ removeMemberAPI:", err?.response?.data || err.message);
+    return { success: false };
+  }
+};
+
+export const leaveGroupAPI = async (data) => {
+  try {
+    const res = await api.post("/chat/group/leave", data);
+    return res.data;
+  } catch (err) {
+    console.error("❌ leaveGroupAPI:", err?.response?.data || err.message);
+    return { success: false };
+  }
+};
+
+export const promoteAdminAPI = async (data) => {
+  try {
+    const res = await api.post("/chat/group/promote-admin", data);
+    return res.data;
+  } catch (err) {
+    console.error("❌ promoteAdminAPI:", err?.response?.data || err.message);
+    return { success: false };
+  }
+};
+
+export const updateGroupInfoAPI = async (data) => {
+  try {
+    const res = await api.put("/chat/group/update-info", data);
+    return res.data;
+  } catch (err) {
+    console.error("❌ updateGroupInfoAPI:", err?.response?.data || err.message);
+    return { success: false };
+  }
+};
+
+// ==============================
+// Tạo nhóm chat
+// ==============================
+export const createGroupAPI = async (data) => {
+  try {
+    const res = await api.post("/chat/group/create", data);
+    return res.data;
+  } catch (err) {
+    console.error("❌ createGroupAPI:", err?.response?.data || err.message);
+    return {
+      success: false,
+      message: err?.response?.data?.message || "Tạo nhóm thất bại",
+    };
+  }
 };

@@ -285,9 +285,15 @@ export default function ChatBox({
       );
     });
 
-    socket.on("message_pinned", (data) => {
-      setPinnedMessages(data.pinnedMessages || []);
-    });
+    const handlePinnedRealtime = (data) => {
+      const pins = normalizePinnedMessages(data?.pinnedMessages || []);
+
+      if (pins.length > 0 || data?.pinnedMessages?.length === 0) {
+        setPinnedMessages(pins);
+      }
+    };
+
+    socket.on("message_pinned", handlePinnedRealtime);
 
     return () => {
       socket.emit(
@@ -298,7 +304,7 @@ export default function ChatBox({
       socket.off("message_seen", handleSeen);
       socket.off("message_edited", handleEdited);
       socket.off("message_deleted", handleDeleted);
-      socket.off("message_pinned");
+      socket.off("message_pinned", handlePinnedRealtime);
     };
   }, [selected, tab]);
 
@@ -364,6 +370,20 @@ export default function ChatBox({
     return `${m}:${s}`;
   };
 
+  const normalizePinnedMessages = (raw = []) => {
+    if (!Array.isArray(raw)) return [];
+
+    const map = new Map();
+
+    raw.forEach((p) => {
+      const id = p?.message?._id;
+      if (id && !map.has(id)) {
+        map.set(id, p);
+      }
+    });
+
+    return Array.from(map.values());
+  };
   // LOAD ====================================================
 
   const loadMessages = async () => {
@@ -570,26 +590,48 @@ export default function ChatBox({
 
   //Load pinned messages khi mở chat
   useEffect(() => {
-    if (!selected?._id) return;
+    if (!conversationId) return;
+
+    let mounted = true;
 
     const loadPinned = async () => {
-      const res = await getPinnedMessagesAPI(selected._id);
+      try {
+        const res = await getPinnedMessagesAPI(conversationId);
+        console.log("PINNED API RESPONSE:", res);
 
-      if (res.data.success) {
-        setPinnedMessages(res.data.data || []);
+        const success = res?.success || res?.data?.success;
+        const pins = res?.data?.data || res?.data || [];
+
+        if (mounted) {
+          if (success) {
+            setPinnedMessages(normalizePinnedMessages(pins));
+          } else {
+            setPinnedMessages([]);
+          }
+        }
+      } catch (err) {
+        console.error("LOAD PIN ERROR:", err);
+        if (mounted) setPinnedMessages([]);
       }
     };
 
     loadPinned();
-  }, [selected?._id]);
+
+    return () => {
+      mounted = false;
+    };
+  }, [conversationId]);
 
 
   const handleUnpin = async (msg) => {
     try {
-      const res = await pinMessageAPI(selected._id, msg._id);
+      const res = await pinMessageAPI(conversationId, msg._id);
 
-      if (res?.data?.success) {
-        setPinnedMessages(res.data.data?.pinnedMessages || []);
+      const success = res?.success || res?.data?.success;
+      const pins = res?.data?.data?.pinnedMessages || res?.data?.pinnedMessages || [];
+
+      if (success) {
+        setPinnedMessages(normalizePinnedMessages(pins));
       }
     } catch (err) {
       console.error("❌ UNPIN ERROR:", err.response?.data || err.message);
@@ -939,10 +981,13 @@ export default function ChatBox({
   // ================= PIN =================
   const handlePin = async (msg) => {
     try {
-      const res = await pinMessageAPI(selected._id, msg._id);
+      const res = await pinMessageAPI(conversationId, msg._id);
 
-      if (res?.data?.success) {
-        setPinnedMessages(res.data.data?.pinnedMessages || []);
+      const success = res?.success || res?.data?.success;
+      const pins = res?.data?.data?.pinnedMessages || res?.data?.pinnedMessages || [];
+
+      if (success) {
+        setPinnedMessages(normalizePinnedMessages(pins));
       }
     } catch (err) {
       console.error("❌ PIN ERROR:", err.response?.data || err.message);

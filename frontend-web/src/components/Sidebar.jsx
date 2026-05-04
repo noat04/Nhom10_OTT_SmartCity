@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { FaUserPlus } from "react-icons/fa";
 import { searchUsersAPI, sendFriendRequestAPI } from "../api/friendAPI";
+import CreateGroupModal from "./CreateGroupModal";
 
 export default function Sidebar({
   tab,
@@ -12,7 +13,10 @@ export default function Sidebar({
   hasNewFriendRequest,
   showAddFriendModal,
   setShowAddFriendModal,
+  showCreateGroupModal,
+  setShowCreateGroupModal,
   unreadMap,
+  loadChats,
 }) {
   const [search, setSearch] = useState("");
   const [showMenu, setShowMenu] = useState(false);
@@ -36,8 +40,8 @@ export default function Sidebar({
 
   const filteredContacts = Array.isArray(contacts)
     ? contacts.filter((chat) =>
-      (chat.name || "").toLowerCase().includes(search.toLowerCase())
-    )
+        (chat.name || "").toLowerCase().includes(search.toLowerCase())
+      )
     : [];
 
   const handleSearchByEmail = async () => {
@@ -161,8 +165,8 @@ export default function Sidebar({
                 className="p-2"
                 style={{ cursor: "pointer" }}
                 onClick={() => {
+                  setShowCreateGroupModal(true);
                   setShowMenu(false);
-                  alert("Chức năng tạo nhóm sẽ làm tiếp");
                 }}
               >
                 👥 Tạo nhóm
@@ -185,12 +189,11 @@ export default function Sidebar({
 
                 const getLastMessageText = (msg) => {
                   if (!msg) return "Chưa có tin nhắn";
-
+                  if (msg.isUnsent) return "Tin nhắn đã thu hồi";
                   if (msg.type === "image") return "📷 Đã gửi ảnh";
                   if (msg.type === "video") return "🎥 Đã gửi video";
                   if (msg.type === "file") return "📎 Đã gửi file";
                   if (msg.type === "call") return "📞 Cuộc gọi";
-
                   return msg.content || "Tin nhắn";
                 };
 
@@ -223,11 +226,34 @@ export default function Sidebar({
                     />
 
                     <div className="flex-grow-1">
-                      <div className="fw-bold">{chat.name || "User"}</div>
+                      <div className="fw-bold">
+                        {chat.name || "User"}
+
+                        {chat.type === "group" && (
+                          <span
+                            style={{
+                              marginLeft: 6,
+                              background: "#0d6efd",
+                              color: "#fff",
+                              fontSize: 10,
+                              padding: "2px 6px",
+                              borderRadius: 8,
+                            }}
+                          >
+                            Nhóm
+                          </span>
+                        )}
+                      </div>
+
                       <small className="text-muted">{lastMessage}</small>
+
+                      {chat.type === "group" && (
+                        <div style={{ fontSize: 11, color: "#888" }}>
+                          {chat.memberCount || chat.members?.length || 0} thành viên
+                        </div>
+                      )}
                     </div>
 
-                    {/* 🔴 BADGE TIN NHẮN MỚI */}
                     {unreadMap?.[chat._id] > 0 && (
                       <span
                         style={{
@@ -237,7 +263,7 @@ export default function Sidebar({
                           padding: "2px 6px",
                           fontSize: 12,
                           minWidth: 18,
-                          textAlign: "center"
+                          textAlign: "center",
                         }}
                       >
                         {unreadMap[chat._id]}
@@ -290,6 +316,7 @@ export default function Sidebar({
         </div>
       </div>
 
+      {/* ADD FRIEND MODAL GIỮ NGUYÊN */}
       {showAddFriendModal && (
         <div
           style={{
@@ -344,11 +371,7 @@ export default function Sidebar({
                       : "https://i.pravatar.cc/80";
 
                   return (
-                    <div
-                      key={user._id}
-                      className="border rounded p-3 mb-3"
-                      style={{ background: "#fff" }}
-                    >
+                    <div key={user._id} className="border rounded p-3 mb-3">
                       <div className="d-flex align-items-start">
                         <img
                           src={avatar}
@@ -356,29 +379,14 @@ export default function Sidebar({
                           className="rounded-circle me-3"
                           width="60"
                           height="60"
-                          style={{ objectFit: "cover" }}
                         />
 
                         <div className="flex-grow-1">
-                          <div className="fw-bold fs-6">
-                            {user.fullName || "Chưa có tên"}
-                          </div>
-
-                          <div className="text-muted small mb-1">
-                            Username: {user.username || "Chưa cập nhật"}
-                          </div>
-
-                          <div className="text-muted small mb-1">
-                            Email: {user.email || "Chưa cập nhật"}
-                          </div>
-
-                          <div className="text-muted small mb-1">
-                            SĐT: {user.phone || "Chưa cập nhật"}
-                          </div>
-
-                          <div className="text-muted small mb-2">
-                            Bio: {user.bio || "Chưa có bio"}
-                          </div>
+                          <div className="fw-bold">{user.fullName || "Chưa có tên"}</div>
+                          <div className="text-muted small">Username: {user.username}</div>
+                          <div className="text-muted small">Email: {user.email}</div>
+                          <div className="text-muted small">SĐT: {user.phone || "..."}</div>
+                          <div className="text-muted small mb-2">Bio: {user.bio || "..."}</div>
 
                           {user.friendshipStatus === "none" && (
                             <button
@@ -386,17 +394,13 @@ export default function Sidebar({
                               onClick={() => handleSendFriendRequest(user._id)}
                               disabled={sendingRequest}
                             >
-                              {sendingRequest
-                                ? "Đang gửi..."
-                                : "Gửi lời mời kết bạn"}
+                              {sendingRequest ? "Đang gửi..." : "Gửi lời mời kết bạn"}
                             </button>
                           )}
 
                           {user.friendshipStatus === "pending" && (
                             <button className="btn btn-secondary btn-sm" disabled>
-                              {user.isSender
-                                ? "Đã gửi lời mời"
-                                : "Đang chờ phản hồi"}
+                              {user.isSender ? "Đã gửi lời mời" : "Đang chờ phản hồi"}
                             </button>
                           )}
 
@@ -432,6 +436,14 @@ export default function Sidebar({
             </div>
           </div>
         </div>
+      )}
+
+      {/* CREATE GROUP MODAL */}
+      {showCreateGroupModal && (
+        <CreateGroupModal
+          setShowCreateGroupModal={setShowCreateGroupModal}
+          loadChats={loadChats}
+        />
       )}
     </>
   );
