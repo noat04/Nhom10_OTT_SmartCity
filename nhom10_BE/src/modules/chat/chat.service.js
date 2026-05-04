@@ -228,7 +228,18 @@ class ChatService {
         return await Message.find({
             conversationId,
             senderId: { $ne: userId }
-        }).populate("seenBy.userId", "fullName avatar");
+        })
+            .populate("senderId", "fullName avatar")
+            .populate({
+                path: "replyTo",
+                populate: {
+                    path: "senderId",
+                    select: "fullName avatar"
+                }
+            })
+            .populate("seenBy.userId", "fullName avatar")
+            .populate("deliveredTo.userId", "fullName avatar")
+            .populate("reactions.userId", "fullName avatar");
     }
 
     //Sửa tin nhắn
@@ -592,6 +603,22 @@ class ChatService {
                 }
             }
         );
+
+        return await Message.find({
+            conversationId,
+            senderId: { $ne: userId }
+        })
+            .populate("senderId", "fullName avatar")
+            .populate({
+                path: "replyTo",
+                populate: {
+                    path: "senderId",
+                    select: "fullName avatar"
+                }
+            })
+            .populate("seenBy.userId", "fullName avatar")
+            .populate("deliveredTo.userId", "fullName avatar")
+            .populate("reactions.userId", "fullName avatar");
     }
 
     async getGroupInfo(conversationId) {

@@ -56,6 +56,7 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
   const bottomRef = useRef(null);
   const fileInputRef = useRef(null);
   const isAtBottomRef = useRef(true);
+  const pendingScrollRef = useRef(false);
   const loadingMoreRef = useRef(false);
 
   const myId = localStorage.getItem("userId");
@@ -219,38 +220,57 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
         });
       }
 
-      let shouldScroll = false;
 
       setMessages((prev) => {
         const exists = prev.some((m) => m._id === msg._id);
         if (exists) return prev;
 
-        shouldScroll = isAtBottomRef.current;
+        pendingScrollRef.current = isAtBottomRef.current;
 
         return [...prev, msg].sort(
           (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
         );
       });
+      // let shouldScroll = false;
+
+      // setMessages((prev) => {
+      //   const exists = prev.some((m) => m._id === msg._id);
+      //   if (exists) return prev;
+
+      //   shouldScroll = isAtBottomRef.current;
+
+      //   return [...prev, msg].sort(
+      //     (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
+      //   );
+      // });
 
       if (typeof window.updateLastMessage === "function") {
         window.updateLastMessage(msg);
       }
 
-      if (shouldScroll) {
-        requestAnimationFrame(() => {
-          bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-        });
-      }
+      // if (shouldScroll) {
+      //   requestAnimationFrame(() => {
+      //     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      //   });
+      // }
     };
 
     const handleSeen = ({ conversationId, seenMessages }) => {
       if (String(conversationId) !== String(selected._id)) return;
 
-      setMessages(prev =>
-          prev.map(msg => {
-            const updated = seenMessages.find(m => m._id === msg._id);
-            return updated ? { ...msg, ...updated } : msg;
-          })
+      setMessages((prev) =>
+        prev.map((msg) => {
+          const updated = seenMessages.find((m) => m._id === msg._id);
+
+          if (!updated) return msg;
+
+          return {
+            ...msg,
+            ...updated,
+            senderId: updated.senderId || msg.senderId,
+            replyTo: updated.replyTo || msg.replyTo,
+          };
+        })
       );
     };
 
@@ -389,6 +409,15 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
       socket.off("message_delivered", handleDelivered);
     };
   }, [selected?._id]);
+
+  useEffect(() => {
+    if (pendingScrollRef.current) {
+      requestAnimationFrame(() => {
+        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+        pendingScrollRef.current = false;
+      });
+    }
+  }, [messages]);
 
   useEffect(() => {
     const socket = getSocket();
