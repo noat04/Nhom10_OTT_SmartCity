@@ -173,6 +173,8 @@ export default function ChatBox({
     socket.emit("joinConversation", roomId);
 
     const handleNewMessage = (msg) => {
+      // 👉 THÊM DÒNG NÀY ĐỂ DEBUG:
+      console.log("🔥 SOCKET VỪA BẮT ĐƯỢC TIN NHẮN MỚI:", msg);
       const currentConversationId = selected?.conversationId || selected?._id;
 
       // ❗ nếu KHÔNG phải chat đang mở

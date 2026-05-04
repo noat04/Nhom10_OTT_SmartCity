@@ -3,7 +3,13 @@ import { io } from "socket.io-client";
 let socket = null;
 
 export const connectSocket = (token) => {
-  if (socket) return socket;
+  if (socket) {
+    // Nếu biến socket còn tồn tại nhưng đường truyền bị ngắt -> chủ động ép nó kết nối lại
+    if (!socket.connected) {
+      socket.connect();
+    }
+    return socket;
+  }
 
   socket = io("http://localhost:3000", {
     auth: { token },
