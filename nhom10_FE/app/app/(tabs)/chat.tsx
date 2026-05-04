@@ -16,7 +16,6 @@ import TopSearchBar from "../../components/TopSearchBar";
 import { useAuth } from "../../context/authContext";
 import { getConversationsAPI } from "../../service/chat.api";
 import { getSocket } from "../../socket/socket";
-
 export default function ChatScreen() {
   const router = useRouter();
   const { user } = useAuth();

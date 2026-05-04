@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { FaUserPlus, FaRobot, FaPlus, FaTrash } from "react-icons/fa";
 import { searchUsersAPI, sendFriendRequestAPI } from "../api/friendAPI";
-// 👉 Import thêm API lấy danh sách session và xóa session
 import { getAiSessionsAPI, deleteAiSessionAPI } from "../api/aiAPI";
+import CreateGroupModal from "./CreateGroupModal";
 
 export default function Sidebar({
   tab,
@@ -15,7 +15,10 @@ export default function Sidebar({
   showAddFriendModal,
   setShowAddFriendModal,
   unreadMap,
-  reloadTrigger, // 👉 Nhận prop trigger từ ChatPage để biết khi nào cần load lại lịch sử AI
+  reloadTrigger,
+  showCreateGroupModal,
+  setShowCreateGroupModal,
+  loadChats,
 }) {
   const [search, setSearch] = useState("");
   const [showMenu, setShowMenu] = useState(false);
@@ -35,6 +38,7 @@ export default function Sidebar({
         setShowMenu(false);
       }
     };
+
     document.addEventListener("click", handleClickOutside);
     return () => document.removeEventListener("click", handleClickOutside);
   }, []);
@@ -44,7 +48,7 @@ export default function Sidebar({
     if (tab === "ai") {
       loadAiSessions();
     }
-  }, [tab, reloadTrigger]); // Thêm reloadTrigger vào dependency để mỗi khi trigger thay đổi (khi có cuộc trò chuyện mới hoặc xóa cuộc trò chuyện) thì sẽ tự động load lại danh sách session
+  }, [tab, reloadTrigger]);
 
   const loadAiSessions = async () => {
     const res = await getAiSessionsAPI();
@@ -54,14 +58,14 @@ export default function Sidebar({
   };
 
   const handleDeleteAiSession = async (e, sessionId) => {
-    e.stopPropagation(); // Ngăn sự kiện click lan ra ngoài (chọn session)
+    e.stopPropagation();
     if (!window.confirm("Bạn có chắc chắn muốn xóa cuộc trò chuyện này?")) return;
 
     const res = await deleteAiSessionAPI(sessionId);
     if (res?.success) {
       setAiSessions(prev => prev.filter(s => s._id !== sessionId));
       if (selected?._id === sessionId) {
-        setSelected(null); // Nếu đang mở đoạn chat đó thì đóng lại
+        setSelected(null);
       }
     } else {
       alert("Xóa thất bại!");
@@ -72,7 +76,7 @@ export default function Sidebar({
     setSelected({
       isAI: true,
       name: "Cuộc trò chuyện mới",
-      _id: "new_ai_chat_" + Date.now(), // Thêm timestamp để ép ChatAI render lại
+      _id: "new_ai_chat_" + Date.now(),
       isNew: true
     });
   };
@@ -92,16 +96,19 @@ export default function Sidebar({
       setError("Vui lòng nhập email");
       return;
     }
+
     setLoadingSearch(true);
     setError("");
     setSearchResult([]);
 
     const res = await searchUsersAPI(searchEmail.trim());
+
     if (!res?.success) {
       setError(res?.message || "Không tìm thấy người dùng");
       setLoadingSearch(false);
       return;
     }
+
     setSearchResult(Array.isArray(res.data) ? res.data : []);
     setLoadingSearch(false);
   };
@@ -109,6 +116,7 @@ export default function Sidebar({
   const handleSendFriendRequest = async (receiverId) => {
     setSendingRequest(true);
     setError("");
+
     const res = await sendFriendRequestAPI(receiverId);
 
     if (!res?.success) {
@@ -124,6 +132,7 @@ export default function Sidebar({
           : u
       )
     );
+
     setSendingRequest(false);
   };
 
@@ -203,12 +212,13 @@ export default function Sidebar({
               >
                 👤 Thêm bạn
               </div>
+
               <div
                 className="p-2"
                 style={{ cursor: "pointer" }}
                 onClick={() => {
+                  setShowCreateGroupModal(true);
                   setShowMenu(false);
-                  alert("Chức năng tạo nhóm sẽ làm tiếp");
                 }}
               >
                 👥 Tạo nhóm
@@ -230,6 +240,7 @@ export default function Sidebar({
 
                 const getLastMessageText = (msg) => {
                   if (!msg) return "Chưa có tin nhắn";
+                  if (msg.isUnsent) return "Tin nhắn đã thu hồi";
                   if (msg.type === "image") return "📷 Đã gửi ảnh";
                   if (msg.type === "video") return "🎥 Đã gửi video";
                   if (msg.type === "file") return "📎 Đã gửi file";
@@ -252,12 +263,46 @@ export default function Sidebar({
                     onClick={() => setSelected(chat)}
                   >
                     <img src={avatar} alt="" className="rounded-circle me-2" width="40" height="40" />
+
                     <div className="flex-grow-1">
-                      <div className="fw-bold">{chat.name || "User"}</div>
+                      <div className="fw-bold">
+                        {chat.name || "User"}
+                        {chat.type === "group" && (
+                          <span
+                            style={{
+                              marginLeft: 6,
+                              background: "#0d6efd",
+                              color: "#fff",
+                              fontSize: 10,
+                              padding: "2px 6px",
+                              borderRadius: 8,
+                            }}
+                          >
+                            Nhóm
+                          </span>
+                        )}
+                      </div>
                       <small className="text-muted">{lastMessage}</small>
+
+                      {chat.type === "group" && (
+                        <div style={{ fontSize: 11, color: "#888" }}>
+                          {chat.memberCount || chat.members?.length || 0} thành viên
+                        </div>
+                      )}
                     </div>
+
                     {unreadMap?.[chat._id] > 0 && (
-                      <span style={{ background: "red", color: "#fff", borderRadius: "50%", padding: "2px 6px", fontSize: 12, minWidth: 18, textAlign: "center" }}>
+                      <span
+                        style={{
+                          background: "red",
+                          color: "#fff",
+                          borderRadius: "50%",
+                          padding: "2px 6px",
+                          fontSize: 12,
+                          minWidth: 18,
+                          textAlign: "center",
+                        }}
+                      >
                         {unreadMap[chat._id]}
                       </span>
                     )}
@@ -292,7 +337,6 @@ export default function Sidebar({
             <>
               <div className="text-muted small fw-bold mb-2 ps-2">HÔM NAY</div>
 
-              {/* Nút Cuộc trò chuyện mới luôn nằm trên cùng */}
               <div
                 className="d-flex align-items-center p-2 border-bottom mb-2"
                 style={{
@@ -337,7 +381,6 @@ export default function Sidebar({
                       <small className="text-muted">Trợ lý dịch vụ công</small>
                     </div>
 
-                    {/* Nút Xóa */}
                     <FaTrash
                       className="position-absolute text-danger"
                       style={{ right: "15px", cursor: "pointer", opacity: 0.7 }}
@@ -495,6 +538,14 @@ export default function Sidebar({
             </div>
           </div>
         </div>
+      )}
+
+      {/* CREATE GROUP MODAL */}
+      {showCreateGroupModal && (
+        <CreateGroupModal
+          setShowCreateGroupModal={setShowCreateGroupModal}
+          loadChats={loadChats}
+        />
       )}
     </>
   );

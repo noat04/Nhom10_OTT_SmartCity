@@ -7,13 +7,20 @@ import OtpPage from "./pages/OtpPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 
 import { useAuth } from "./context/AuthContext";
-import { getSocket } from "./socket/socket";
+import { connectSocket, getSocket } from "./socket/socket";
 
 export default function App() {
   const { user, login, logout } = useAuth();
 
   useEffect(() => {
-    const socket = getSocket();
+    // Đảm bảo chỉ kết nối khi đã có user và token
+    if (!user) return;
+
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    // Khởi tạo hoặc lấy socket đã có
+    const socket = connectSocket(token);
 
     if (!socket) return; // 🔥 tránh undefined
 
@@ -35,7 +42,7 @@ export default function App() {
       socket.off("connect", handleConnect);
       socket.off("force_logout", handleForceLogout);
     };
-  }, [logout]);
+  }, [user, logout]);
 
   return (
     <Router>

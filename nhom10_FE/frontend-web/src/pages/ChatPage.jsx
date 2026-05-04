@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import Sidebar from "../components/Sidebar";
 import ChatBox from "../components/Chatbox";
+import ChatGroupBox from "../components/ChatGroupBox";
 import Panel from "../components/Panel";
 import ChatAI from "../components/ChatAI";
 import { getConversations } from "../api/chatApi";
@@ -14,20 +15,80 @@ import {
   offNewMessageGlobal,
   onFriendRequestReceived,
   offFriendRequestReceived,
+  onConversationUpdated,
+  onGroupCreated,
+  onGroupInfoUpdated,
+  onGroupMembersAdded,
+  onGroupMemberRemoved,
+  onGroupLeft,
 } from "../socket/socket";
-import { FaUserPlus, FaRobot, FaPlus, FaTrash } from "react-icons/fa";
+import { FaRobot } from "react-icons/fa";
 
 export default function ChatPage() {
   const [contacts, setContacts] = useState([]);
   const [selected, setSelected] = useState(null);
   const [tab, setTab] = useState("chat");
 
-  const [friendSection, setFriendSection] = useState("friends");
+  const [friendSection, setFriendSection] = useState("friends"); // "friends" | "requests"
   const [hasNewFriendRequest, setHasNewFriendRequest] = useState(false);
   const [showAddFriendModal, setShowAddFriendModal] = useState(false);
+  const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
   const [aiReloadTrigger, setAiReloadTrigger] = useState(0);
 
   const navigate = useNavigate();
+
+  // 👉 BỔ SUNG: XỬ LÝ ĐỒNG BỘ GIAO DIỆN KHI CHUYỂN TAB
+  useEffect(() => {
+    if (tab === "ai") {
+      // Khi sang tab AI: Tự động chọn "Đoạn chat mới"
+      setSelected({
+        isAI: true,
+        name: "Cuộc trò chuyện mới",
+        _id: "new_ai_chat",
+        isNew: true,
+      });
+    } else if (tab === "friends") {
+      // Khi sang tab Bạn bè: Xóa selected để hiện màn hình chờ (trống)
+      setSelected(null);
+    } else if (tab === "chat") {
+      // Khi quay lại tab Chat: Nếu đang kẹt ở giao diện AI, tự động đổi về chat đầu tiên
+      if (selected?.isAI) {
+        setSelected(contacts.length > 0 ? contacts[0] : null);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  // 👉 updateLastMessage từ nhánh đồng nghiệp (được gán vào window để ChatGroupBox gọi trực tiếp)
+  const updateLastMessage = (msg) => {
+    setContacts((prev) => {
+      const msgConvId =
+        typeof msg.conversationId === "object"
+          ? msg.conversationId._id
+          : msg.conversationId;
+
+      let updated = prev.map((chat) => {
+        const chatId = chat.conversationId || chat._id;
+
+        if (String(chatId) === String(msgConvId)) {
+          return {
+            ...chat,
+            latestMessage: msg,
+            updatedAt: msg.createdAt || new Date().toISOString(),
+          };
+        }
+
+        return chat;
+      });
+
+      // Đẩy chat mới nhất lên đầu
+      updated.sort(
+        (a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0)
+      );
+
+      return [...updated];
+    });
+  };
 
   const [unreadMap, setUnreadMap] = useState(() => {
     const saved = localStorage.getItem("unreadMap");
@@ -39,12 +100,12 @@ export default function ChatPage() {
   }, [unreadMap]);
 
   const handleNewSessionCreated = async (newSessionId) => {
-    setSelected(prev => ({
+    setSelected((prev) => ({
       ...prev,
       _id: newSessionId,
-      isNew: false
+      isNew: false,
     }));
-    setAiReloadTrigger(prev => prev + 1);
+    setAiReloadTrigger((prev) => prev + 1);
   };
 
   const currentUser = (() => {
@@ -58,6 +119,7 @@ export default function ChatPage() {
 
   const currentUserId = currentUser?._id || currentUser?.id || null;
 
+  // 👉 Logic chuẩn hóa danh sách liên hệ
   const normalizeConversation = (conversation) => {
     if (!conversation) return null;
 
@@ -331,11 +393,35 @@ export default function ChatPage() {
     };
   }, [tab, friendSection]);
 
+  // Socket listeners cho Group Chat
+  useEffect(() => {
+    const refreshChats = () => {
+      loadChats();
+    };
+
+    onConversationUpdated(refreshChats);
+    onGroupCreated(refreshChats);
+    onGroupInfoUpdated(refreshChats);
+    onGroupMembersAdded(refreshChats);
+    onGroupMemberRemoved(refreshChats);
+    onGroupLeft(refreshChats);
+
+    return () => { };
+  }, []);
+
+  // Tắt chấm đỏ
   useEffect(() => {
     if (tab === "friends" && friendSection === "requests") {
       setHasNewFriendRequest(false);
     }
   }, [tab, friendSection]);
+
+  useEffect(() => {
+    window.updateLastMessage = updateLastMessage;
+    return () => {
+      delete window.updateLastMessage;
+    };
+  }, [contacts]);
 
   return (
     <div className="container-fluid vh-100 overflow-hidden">
@@ -349,6 +435,7 @@ export default function ChatPage() {
 
         <Sidebar
           tab={tab}
+          setTab={setTab} // 👉 THÊM prop setTab để Sidebar có thể điều hướng tự động
           contacts={contacts}
           selected={selected}
           friendSection={friendSection}
@@ -356,10 +443,12 @@ export default function ChatPage() {
           hasNewFriendRequest={hasNewFriendRequest}
           showAddFriendModal={showAddFriendModal}
           setShowAddFriendModal={setShowAddFriendModal}
+          showCreateGroupModal={showCreateGroupModal}
+          setShowCreateGroupModal={setShowCreateGroupModal}
           unreadMap={unreadMap}
           reloadTrigger={aiReloadTrigger}
+          loadChats={loadChats}
           setSelected={(c) => {
-            // 👉 BƯỚC SỬA LỖI: Thêm optional chaining (?) cho c
             setSelected(c);
             const id = c?._id || c?.conversationId;
             if (id) {
@@ -371,7 +460,17 @@ export default function ChatPage() {
           }}
         />
 
-        {!selected ? (
+        {/* 👉 ĐÃ SỬA LẠI ĐIỀU KIỆN RENDER GIAO DIỆN CHÍNH */}
+        {tab === "friends" ? (
+          // LUÔN LUÔN RENDER CHATBOX NẾU ĐANG Ở TAB FRIENDS ĐỂ HIỂN THỊ UI BẠN BÈ
+          <ChatBox
+            selected={selected}
+            tab={tab}
+            friendSection={friendSection}
+            setHasNewFriendRequest={setHasNewFriendRequest}
+            setUnreadMap={setUnreadMap}
+          />
+        ) : !selected ? (
           <div className="col-9 d-flex justify-content-center align-items-center bg-light">
             <div className="text-center">
               <FaRobot size={50} className="text-muted mb-3" />
@@ -383,6 +482,12 @@ export default function ChatPage() {
             selected={selected}
             onNewSessionCreated={handleNewSessionCreated}
           />
+        ) : selected?.type === "group" ? (
+          <ChatGroupBox
+            selected={selected}
+            setUnreadMap={setUnreadMap}
+            loadChats={loadChats}
+          />
         ) : (
           <ChatBox
             selected={selected}
@@ -392,6 +497,7 @@ export default function ChatPage() {
             setUnreadMap={setUnreadMap}
           />
         )}
+
       </div>
     </div>
   );
