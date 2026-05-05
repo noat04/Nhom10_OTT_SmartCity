@@ -56,6 +56,7 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
   const bottomRef = useRef(null);
   const fileInputRef = useRef(null);
   const isAtBottomRef = useRef(true);
+  const pendingScrollRef = useRef(false);
   const loadingMoreRef = useRef(false);
 
   const myId = localStorage.getItem("userId");
@@ -90,14 +91,14 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
 
     const res = await getMessages(selected._id, nextCursor);
     if (res.success) {
-      const sorted = [...res.data.messages].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+      const sorted = [...res.data.messages].sort((a, b) => new Date(a.createdAt || Date.now()) - new Date(b.createdAt || Date.now()));
 
       if (nextCursor) {
         setMessages((prev) => {
           const map = new Map();
           sorted.forEach((m) => map.set(m._id, m));
           prev.forEach((m) => map.set(m._id, m));
-          return Array.from(map.values()).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+          return Array.from(map.values()).sort((a, b) => new Date(a.createdAt || Date.now()) - new Date(b.createdAt || Date.now()));
         });
         requestAnimationFrame(() => {
           const newHeight = el?.scrollHeight || 0;
@@ -130,7 +131,6 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
     loadMessages();
     loadPinned();
     setCurrentPinnedIndex(0);
-    // Báo ChatPage reset Unread về 0
     if (typeof setUnreadMap === "function") {
       setUnreadMap((prev) => ({ ...prev, [selected._id]: 0 }));
     }
@@ -144,7 +144,7 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
   useEffect(() => {
     if (!selected?._id) return;
     if (!search.trim()) {
-      setSearchResults([]);
+      searchResults.length > 0 && setSearchResults([]);
       return;
     }
     const delay = setTimeout(async () => {
@@ -154,25 +154,23 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
     return () => clearTimeout(delay);
   }, [search, selected]);
 
-  // ================= SOCKET REALTIME (ĐÃ FIX LỖI KHÔNG NHẬN TIN NHẮN) =================
+  // ================= SOCKET REALTIME =================
   useEffect(() => {
     const socket = getSocket();
     if (!socket || !selected?._id) return;
 
     const roomId = selected._id;
 
-    // 🔥 FIX: Tách hàm joinRoom ra để gọi lại nếu socket bị disconnect -> reconnect
     const joinRoom = () => {
       socket.emit("joinConversation", roomId);
     };
 
     joinRoom();
-    socket.on("connect", joinRoom); // Chống rớt mạng
+    socket.on("connect", joinRoom);
 
     const handleReceive = (msg) => {
       const msgConvId = typeof msg.conversationId === "object" ? msg.conversationId._id : msg.conversationId;
 
-      // Chỉ nhận tin nhắn của phòng hiện tại
       if (String(msgConvId) !== String(roomId)) return;
 
       if (isAtBottomRef.current) {
@@ -181,25 +179,39 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
 
       setMessages((prev) => {
         const msgId = msg._id || msg.id;
+        if (!msgId) return prev; // Bỏ qua tin nhắn lỗi không có ID
+
         const exists = prev.some((m) => m._id === msgId);
         if (exists) return prev;
 
-        const shouldScroll = isAtBottomRef.current;
-        const newList = [...prev, msg].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+        pendingScrollRef.current = isAtBottomRef.current;
 
-        if (shouldScroll) {
-          requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
-        }
-        return newList;
+        // ✅ FIX LỖI SORT: Đảm bảo có fallback Date.now() nếu createdAt bị undefined
+        return [...prev, msg].sort(
+          (a, b) => new Date(a.createdAt || Date.now()) - new Date(b.createdAt || Date.now())
+        );
       });
+
+      if (typeof window.updateLastMessage === "function") {
+        window.updateLastMessage(msg);
+      }
     };
 
     const handleSeen = ({ conversationId, seenMessages }) => {
-      if (String(conversationId) !== String(roomId)) return;
-      setMessages(prev => prev.map(msg => {
-        const updated = seenMessages.find(m => m._id === msg._id);
-        return updated ? { ...msg, ...updated } : msg;
-      }));
+      if (String(conversationId) !== String(selected._id)) return;
+
+      setMessages((prev) =>
+        prev.map((msg) => {
+          const updated = seenMessages.find((m) => m._id === msg._id);
+          if (!updated) return msg;
+          return {
+            ...msg,
+            ...updated,
+            senderId: updated.senderId || msg.senderId,
+            replyTo: updated.replyTo || msg.replyTo,
+          };
+        })
+      );
     };
 
     const handleDelivered = ({ conversationId, user, deliveredAt }) => {
@@ -282,9 +294,17 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
       socket.off("message_pinned", handlePinnedSocket);
       socket.off("message_seen", handleSeen);
       socket.off("message_delivered", handleDelivered);
-      // socket.emit("leaveConversation", roomId);
     };
   }, [selected?._id, myId]);
+
+  useEffect(() => {
+    if (pendingScrollRef.current) {
+      requestAnimationFrame(() => {
+        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+        pendingScrollRef.current = false;
+      });
+    }
+  }, [messages]);
 
   useEffect(() => {
     const socket = getSocket();
@@ -310,21 +330,39 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
   };
 
   // ================= SEND MESSAGE =================
+  // ✅ FIX: Đã khôi phục API để tạo data chuẩn trong Database, kèm Optimistic UI
   const sendMessage = async () => {
     if (!selected?._id) return;
     if (!message.trim() && !file && !editingMessage) return;
 
     if (editingMessage) {
-      const res = await editMessageAPI({ messageId: editingMessage._id, content: message });
+      const res = await editMessageAPI({
+        messageId: editingMessage._id,
+        content: message,
+      });
+
       if (res.success) {
-        setMessages((prev) => prev.map((m) => {
-          if (m._id === editingMessage._id) return { ...m, content: message, isEdited: true };
-          if (m.replyTo?._id === editingMessage._id) {
-            return { ...m, replyTo: { ...m.replyTo, content: message, isEdited: true } };
-          }
-          return m;
-        }));
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m._id === editingMessage._id)
+              return { ...m, content: message, isEdited: true };
+
+            if (m.replyTo?._id === editingMessage._id) {
+              return {
+                ...m,
+                replyTo: {
+                  ...m.replyTo,
+                  content: message,
+                  isEdited: true,
+                },
+              };
+            }
+
+            return m;
+          })
+        );
       }
+
       setEditingMessage(null);
       setMessage("");
       return;
@@ -350,25 +388,40 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
       replyTo: replyMessage?._id || null,
     };
 
-    // 🔥 FIX: Hiển thị ngay lập tức không cần chờ Socket vọng về
-    const res = await sendMessageAPI(payload);
-    if (res?.success) {
-      const sentMsg = res.data;
-      if (sentMsg) {
-        setMessages((prev) => {
-          if (prev.some((m) => m._id === sentMsg._id)) return prev;
-          return [...prev, sentMsg].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-        });
-      }
-    }
-
-    isAtBottomRef.current = true;
-    requestAnimationFrame(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); });
-
+    // Reset UI lập tức
     setMessage("");
     setFile(null);
     setReplyMessage(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
+
+    // Gọi API để Backend tạo _id chuẩn và broadcast sang các client khác
+    const res = await sendMessageAPI(payload);
+    const socket = getSocket();
+    if (socket && res?.success) {
+      socket.emit("notify_new_message", {
+        conversationId: selected._id,
+        messageId: res.data._id,
+      });
+    }
+    if (res?.success) {
+      const sentMsg = res.data;
+      if (sentMsg) {
+        // Cập nhật lại UI với message đầy đủ thông tin (có _id)
+        setMessages((prev) => {
+          if (prev.some((m) => m._id === sentMsg._id)) return prev;
+          return [...prev, sentMsg].sort((a, b) => new Date(a.createdAt || Date.now()) - new Date(b.createdAt || Date.now()));
+        });
+      }
+    }
+
+    // Dự phòng trường hợp muốn xài thêm socket thủ công
+    // const socket = getSocket();
+    // if (socket) {
+    //   socket.emit("send_message", payload);
+    // }
+
+    isAtBottomRef.current = true;
+    pendingScrollRef.current = true;
   };
 
   // ================= LOAD MORE =================
