@@ -3,7 +3,13 @@ import { io } from "socket.io-client";
 let socket = null;
 
 export const connectSocket = (token) => {
-  if (socket) return socket;
+  if (socket) {
+    // Nếu biến socket còn tồn tại nhưng đường truyền bị ngắt -> chủ động ép nó kết nối lại
+    if (!socket.connected) {
+      socket.connect();
+    }
+    return socket;
+  }
 
   socket = io("http://localhost:3000", {
     auth: { token },
@@ -90,7 +96,7 @@ export const offConversationCreated = (callback) => {
   socket.off("conversation_created", callback);
 };
 
-// ✅ realtime update conversation list khi có tin nhắn mới
+// ✅ realtime update conversation list khi có tin nhắn mới (Từ nhánh HEAD)
 export const onNewMessageGlobal = (callback) => {
   if (!socket) return;
   socket.on("newMessage_global", callback);
@@ -106,4 +112,101 @@ export const disconnectSocket = () => {
     socket.disconnect();
     socket = null;
   }
+};
+
+// ================= CHAT GROUP ================= (Từ nhánh origin/dam)
+export const onConversationUpdated = (callback) => {
+  if (!socket) return;
+  socket.on("conversation_updated", callback);
+};
+
+export const offConversationUpdated = (callback) => {
+  if (!socket) return;
+  socket.off("conversation_updated", callback);
+};
+
+export const onGroupCreated = (callback) => {
+  if (!socket) return;
+  socket.on("group_created", callback);
+};
+
+export const onGroupInfoUpdated = (callback) => {
+  if (!socket) return;
+  socket.on("group_info_updated", callback);
+};
+
+export const onGroupMembersAdded = (callback) => {
+  if (!socket) return;
+  socket.on("group_members_added", callback);
+};
+
+export const onGroupMemberRemoved = (callback) => {
+  if (!socket) return;
+  socket.on("group_member_removed", callback);
+};
+
+export const onGroupLeft = (callback) => {
+  if (!socket) return;
+  socket.on("group_left", callback);
+};
+
+export const onGroupAdminChanged = (callback) => {
+  if (!socket) return;
+  socket.on("group_admin_changed", callback);
+};
+
+export const onMessageUnsent = (callback) => {
+  if (!socket) return;
+  socket.on("message_unsent", callback);
+};
+
+// ================= MESSAGE REALTIME ================= (Từ nhánh origin/dam)
+export const onReceiveMessage = (callback) => {
+  if (!socket) return;
+  socket.on("receive_message", callback);
+};
+
+export const offReceiveMessage = (callback) => {
+  if (!socket) return;
+  socket.off("receive_message", callback);
+};
+
+export const onMessageUpdated = (callback) => {
+  if (!socket) return;
+  socket.on("message_updated", callback);
+};
+
+export const offMessageUpdated = (callback) => {
+  if (!socket) return;
+  socket.off("message_updated", callback);
+};
+
+export const onMessageDeleted = (callback) => {
+  if (!socket) return;
+  socket.on("message_deleted", callback);
+};
+
+export const offMessageDeleted = (callback) => {
+  if (!socket) return;
+  socket.off("message_deleted", callback);
+};
+
+export const onMessageReacted = (callback) => {
+  if (!socket) return;
+  socket.on("message_reacted", callback);
+};
+
+export const offMessageReacted = (callback) => {
+  if (!socket) return;
+  socket.off("message_reacted", callback);
+};
+
+export const onMessagePinned = (callback) => {
+  if (!socket) return;
+  socket.on("message_pinned", callback);
+};
+
+export const offMessagePinned = (callback) => {
+  if (!socket) return;
+  socket.off("message_pinned", callback);
 };

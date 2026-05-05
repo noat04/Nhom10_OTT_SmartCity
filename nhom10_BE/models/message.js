@@ -18,20 +18,38 @@ const messageSchema = new mongoose.Schema({
 
     content: {
         type: String,
-        default: "" // Nên có default để tránh lỗi undefined khi user chỉ gửi ảnh/file mà không kèm text
+        default: ""
     },
 
-    // 👉 Sửa type để hỗ trợ thêm 'call'
-    type: { type: String, enum: ['text', 'image', 'video', 'file', 'call'], default: 'text' },
+    // 👉 Gộp type: Hỗ trợ 'call' (của bạn) và 'system' (của đồng nghiệp)
+    type: {
+        type: String,
+        enum: ['text', 'image', 'video', 'file', 'call', 'system'],
+        default: 'text'
+    },
 
-    // 👉 Thêm trường này để lưu chi tiết cuộc gọi
+    // Tin nhắn hệ thống (từ nhánh đồng nghiệp)
+    systemType: {
+        type: String,
+        enum: [
+            'create_group',
+            'add_member',
+            'remove_member',
+            'leave_group',
+            'rename_group',
+            'change_avatar',
+            'promote_admin'
+        ],
+        default: null
+    },
+
+    // 👉 Lưu chi tiết cuộc gọi (từ nhánh của bạn)
     callInfo: {
         duration: { type: Number, default: 0 }, // Thời lượng tính bằng giây
         status: { type: String, enum: ['ended', 'missed', 'rejected'] },
         callType: { type: String, enum: ['video', 'audio'] }
     },
 
-    // Bên trong file schema Message của Mongoose (Backend)
     fileUrl: { type: String },
     fileName: { type: String },
     fileSize: { type: Number },
@@ -46,20 +64,17 @@ const messageSchema = new mongoose.Schema({
         enum: ['sent', 'delivered', 'seen'],
         default: 'sent'
     },
-    reactions: [
+
+    deliveredTo: [
         {
             userId: {
                 type: mongoose.Schema.Types.ObjectId,
-                ref: 'User',
-                required: true
+                ref: 'User'
             },
-            type: {
-                type: String,
-                enum: ['like', 'love', 'haha', 'sad', 'wow', 'angry'],
-                required: true
-            }
+            deliveredAt: Date
         }
     ],
+
     seenBy: [
         {
             userId: {
@@ -69,15 +84,62 @@ const messageSchema = new mongoose.Schema({
             seenAt: Date
         }
     ],
+
+    reactions: [
+        {
+            userId: {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: 'User',
+                required: true // Giữ nguyên required: true cho an toàn dữ liệu
+            },
+            type: {
+                type: String,
+                enum: ['like', 'love', 'haha', 'sad', 'wow', 'angry'],
+                required: true
+            }
+        }
+    ],
+
+    // Mảng nhắc tên người dùng (từ nhánh đồng nghiệp)
+    mentions: [
+        {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User'
+        }
+    ],
+
     replyTo: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Message',
+        default: null
+    },
+
+    isEdited: {
+        type: Boolean,
+        default: false
+    },
+
+    editedAt: {
+        type: Date,
+        default: null
     },
 
     isDeleted: {
         type: Boolean,
         default: false
+    },
+
+    // Thu hồi tin nhắn (từ nhánh đồng nghiệp)
+    isUnsent: {
+        type: Boolean,
+        default: false
+    },
+
+    unsentAt: {
+        type: Date,
+        default: null
     }
+
 }, {
     timestamps: true // Tự động tạo createdAt, updatedAt
 });

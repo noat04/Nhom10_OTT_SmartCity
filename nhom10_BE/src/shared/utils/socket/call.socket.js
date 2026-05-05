@@ -19,7 +19,11 @@ const emitToUser = async (io, userId, event, data) => {
 
 module.exports = (io, socket) => {
 
+// <<<<<<< HEAD
+
+// =======
    
+// >>>>>>> origin/dam
     // ==========================================
     // 1. CALL INIT (FIX BUSY)
     // ==========================================
@@ -90,7 +94,11 @@ module.exports = (io, socket) => {
             socket.emit("call_created", { callId: newCall._id });
 
             // ==========================================
-            // ⏱ TIMEOUT
+// <<<<<<< HEAD
+//             // TIMEOUT
+// =======
+//             // ⏱ TIMEOUT
+// >>>>>>> origin/dam
             // ==========================================
             callTimers[newCall._id] = setTimeout(async () => {
                 const checkCall = await Call.findById(newCall._id);

@@ -1,7 +1,7 @@
 import { io } from "socket.io-client";
 let socket = null;
 
-const LOCAL_IP = "172.28.49.213";
+const LOCAL_IP = "192.168.1.16";
 
 export const connectSocket = (token) => {
   if (socket) return socket;

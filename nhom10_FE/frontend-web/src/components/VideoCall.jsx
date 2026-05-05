@@ -31,7 +31,8 @@ const VideoCall = forwardRef(({ socket, currentUser, partnerId, conversationId, 
   const peerConnectionRef = useRef(null);
   const localStreamRef = useRef(null);
   const currentCallIdRef = useRef(null);
-
+  // 👉 THÊM DÒNG NÀY: Dùng để lưu trữ Offer nhận được trong lúc đang đổ chuông
+  const pendingOfferRef = useRef(null);
   const iceCandidateQueue = useRef([]);
 
   useImperativeHandle(ref, () => ({
@@ -49,6 +50,15 @@ const VideoCall = forwardRef(({ socket, currentUser, partnerId, conversationId, 
 
       setPartnerInfo(realUser);
 
+      // 👉 2. TRÍCH XUẤT ĐÚNG ID CỦA NGƯỜI NHẬN
+      const targetReceiverId = realUser?.user?._id || realUser?._id || realUser?.id || partnerId;
+
+      console.log("🚀 ĐANG GỌI CHO APP CÓ ID LÀ:", targetReceiverId); // <-- Check F12 Web xem ID này có bị null/undefined không nhé!
+
+      if (!targetReceiverId) {
+        alert("Lỗi: Không tìm thấy ID người nhận!");
+        return;
+      }
       setCallStatus("calling");
 
       socket.emit("call_init", {
@@ -147,21 +157,22 @@ const VideoCall = forwardRef(({ socket, currentUser, partnerId, conversationId, 
     });
 
     socket.on("webrtc_offer", async (data) => {
-      setCallStatus("connected");
-      await startMedia();
-      createPeerConnection(data.senderId);
+      // setCallStatus("connected");
+      // await startMedia();
+      // createPeerConnection(data.senderId);
 
-      try {
-        await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.offer));
-        processIceQueue();
+      // try {
+      //   await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.offer));
+      //   processIceQueue();
 
-        const answer = await peerConnectionRef.current.createAnswer();
-        await peerConnectionRef.current.setLocalDescription(answer);
+      //   const answer = await peerConnectionRef.current.createAnswer();
+      //   await peerConnectionRef.current.setLocalDescription(answer);
 
-        socket.emit("webrtc_answer", { receiverId: data.senderId, answer, callId: data.callId });
-      } catch (e) {
-        console.error("Lỗi xử lý Offer:", e);
-      }
+      //   socket.emit("webrtc_answer", { receiverId: data.senderId, answer, callId: data.callId });
+      // } catch (e) {
+      //   console.error("Lỗi xử lý Offer:", e);
+      pendingOfferRef.current = data;
+
     });
 
     socket.on("webrtc_answer", async (data) => {
@@ -247,13 +258,46 @@ const VideoCall = forwardRef(({ socket, currentUser, partnerId, conversationId, 
     };
   };
 
-  const acceptCall = () => {
+  // const acceptCall = () => {
+  //   if (!incomingCallData) return;
+  //   setCallStatus("connecting");
+  //   socket.emit("call_accept", {
+  //     callId: incomingCallData.callId,
+  //     callerId: incomingCallData.caller?._id || incomingCallData.caller?.id
+  //   });
+  // };
+  const acceptCall = async () => {
     if (!incomingCallData) return;
+
     setCallStatus("connecting");
     socket.emit("call_accept", {
       callId: incomingCallData.callId,
       callerId: incomingCallData.caller?._id || incomingCallData.caller?.id
     });
+
+    // 👉 ĐƯA LOGIC BẬT CAMERA VÀ KẾT NỐI VÀO ĐÂY (VÌ NGƯỜI DÙNG ĐÃ BẤM NGHE)
+    setCallStatus("connected");
+    await startMedia();
+    createPeerConnection(incomingCallData.caller?._id || incomingCallData.caller?.id);
+
+    // Kiểm tra xem lúc nãy có nhận được Offer từ App gửi sang chưa?
+    if (pendingOfferRef.current) {
+      try {
+        const data = pendingOfferRef.current;
+        await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.offer));
+        processIceQueue();
+
+        const answer = await peerConnectionRef.current.createAnswer();
+        await peerConnectionRef.current.setLocalDescription(answer);
+
+        socket.emit("webrtc_answer", { receiverId: data.senderId, answer, callId: data.callId });
+
+        // Xóa offer tạm sau khi xử lý xong
+        pendingOfferRef.current = null;
+      } catch (e) {
+        console.error("Lỗi xử lý Offer khi bấm Nghe:", e);
+      }
+    }
   };
 
   const rejectCall = () => {

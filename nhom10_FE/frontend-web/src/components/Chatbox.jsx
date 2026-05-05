@@ -173,6 +173,8 @@ export default function ChatBox({
     socket.emit("joinConversation", roomId);
 
     const handleNewMessage = (msg) => {
+      // 👉 THÊM DÒNG NÀY ĐỂ DEBUG:
+      console.log("🔥 SOCKET VỪA BẮT ĐƯỢC TIN NHẮN MỚI:", msg);
       const currentConversationId = selected?.conversationId || selected?._id;
 
       // ❗ nếu KHÔNG phải chat đang mở
@@ -220,6 +222,10 @@ export default function ChatBox({
               ? msg.senderId._id
               : msg.senderId;
 
+          // <<<<<<< HEAD
+          // =======
+          //           // chỉ tin nhắn mình gửi mới được seen
+          // >>>>>>> origin/dam
           if (String(senderId) === String(myId)) {
             return { ...msg, status: "seen" };
           }
@@ -227,6 +233,16 @@ export default function ChatBox({
           return msg;
         })
       );
+      // <<<<<<< HEAD
+      // =======
+
+      if (String(userId) !== String(myId)) return;
+
+      setUnreadMap(prev => ({
+        ...prev,
+        [conversationId]: 0
+      }));
+      // >>>>>>> origin/dam
     };
 
     const handleEdited = (msg) => {
@@ -277,9 +293,21 @@ export default function ChatBox({
       );
     });
 
-    socket.on("message_pinned", (data) => {
-      setPinnedMessages(data.pinnedMessages || []);
-    });
+    // <<<<<<< HEAD
+    //     socket.on("message_pinned", (data) => {
+    //       setPinnedMessages(data.pinnedMessages || []);
+    //     });
+    // =======
+    const handlePinnedRealtime = (data) => {
+      const pins = normalizePinnedMessages(data?.pinnedMessages || []);
+
+      if (pins.length > 0 || data?.pinnedMessages?.length === 0) {
+        setPinnedMessages(pins);
+      }
+    };
+
+    socket.on("message_pinned", handlePinnedRealtime);
+    // >>>>>>> origin/dam
 
     return () => {
       socket.emit(
@@ -290,7 +318,11 @@ export default function ChatBox({
       socket.off("message_seen", handleSeen);
       socket.off("message_edited", handleEdited);
       socket.off("message_deleted", handleDeleted);
-      socket.off("message_pinned");
+      // <<<<<<< HEAD
+      //       socket.off("message_pinned");
+      // =======
+      socket.off("message_pinned", handlePinnedRealtime);
+      // >>>>>>> origin/dam
     };
   }, [selected, tab]);
 
@@ -356,10 +388,31 @@ export default function ChatBox({
     return `${m}:${s}`;
   };
 
+  // <<<<<<< HEAD
+  //   // LOAD ====================================================
+
+  //   const loadMessages = async () => {
+  //     //    setMessages([]);
+  // =======
+  const normalizePinnedMessages = (raw = []) => {
+    if (!Array.isArray(raw)) return [];
+
+    const map = new Map();
+
+    raw.forEach((p) => {
+      const id = p?.message?._id;
+      if (id && !map.has(id)) {
+        map.set(id, p);
+      }
+    });
+
+    return Array.from(map.values());
+  };
   // LOAD ====================================================
 
   const loadMessages = async () => {
     //    setMessages([]);
+    // >>>>>>> origin/dam
     setCursor(null);
     setHasMore(true);
 
@@ -560,28 +613,59 @@ export default function ChatBox({
     };
   }, [tab, friendSection, setHasNewFriendRequest]);
 
-  //Load pinned messages khi mở chat
+  // Load pinned messages khi mở chat
   useEffect(() => {
-    if (!selected?._id) return;
+    // 👉 1. THÊM LỆNH CHẶN NÀY: Nếu không có ID hoặc ĐANG LÀ AI thì KHÔNG làm gì cả
+    if (!conversationId || selected?.isAI) return;
+
+    let mounted = true;
 
     const loadPinned = async () => {
-      const res = await getPinnedMessagesAPI(selected._id);
+      try {
+        const res = await getPinnedMessagesAPI(conversationId);
+        // console.log("PINNED API RESPONSE:", res);
 
-      if (res.data.success) {
-        setPinnedMessages(res.data.data || []);
+        const success = res?.success || res?.data?.success;
+        const pins = res?.data?.data || res?.data || [];
+
+        if (mounted) {
+          if (success) {
+            // Đảm bảo hàm normalizePinnedMessages đã được định nghĩa ở trên
+            setPinnedMessages(normalizePinnedMessages(pins));
+          } else {
+            setPinnedMessages([]);
+          }
+        }
+      } catch (err) {
+        console.error("LOAD PIN ERROR:", err);
+        if (mounted) setPinnedMessages([]);
       }
     };
 
     loadPinned();
-  }, [selected?._id]);
+
+    return () => {
+      mounted = false;
+    };
+  }, [conversationId, selected]); // Thêm selected vào dependency
 
 
   const handleUnpin = async (msg) => {
     try {
-      const res = await pinMessageAPI(selected._id, msg._id);
+      // <<<<<<< HEAD
+      //       const res = await pinMessageAPI(selected._id, msg._id);
 
-      if (res?.data?.success) {
-        setPinnedMessages(res.data.data?.pinnedMessages || []);
+      //       if (res?.data?.success) {
+      //         setPinnedMessages(res.data.data?.pinnedMessages || []);
+      // =======
+      const res = await pinMessageAPI(conversationId, msg._id);
+
+      const success = res?.success || res?.data?.success;
+      const pins = res?.data?.data?.pinnedMessages || res?.data?.pinnedMessages || [];
+
+      if (success) {
+        setPinnedMessages(normalizePinnedMessages(pins));
+        // >>>>>>> origin/dam
       }
     } catch (err) {
       console.error("❌ UNPIN ERROR:", err.response?.data || err.message);
@@ -638,7 +722,54 @@ export default function ChatBox({
     }));
   }, [selected]);
 
+  // <<<<<<< HEAD
 
+  // =======
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+
+    const handleGlobalMessage = (msg) => {
+      // 🔥 ID của chat đang mở
+      const currentConversationId =
+        selected?.conversationId || selected?._id;
+
+      const currentId =
+        typeof currentConversationId === "object"
+          ? currentConversationId._id
+          : currentConversationId;
+
+      // 🔥 ID của message nhận được
+      const msgConvId =
+        typeof msg.conversationId === "object"
+          ? msg.conversationId._id
+          : msg.conversationId;
+
+      // 🔥 LUÔN update latestMessage (QUAN TRỌNG)
+      if (typeof window.updateLastMessage === "function") {
+        window.updateLastMessage(msg);
+      }
+
+      // 👉 chỉ tăng unread nếu KHÔNG phải chat đang mở
+      if (String(msgConvId) !== String(currentId)) {
+        setUnreadMap((prev) => ({
+          ...prev,
+          [msgConvId]: (prev[msgConvId] || 0) + 1
+        }));
+      }
+
+      // ✅ tăng unread đúng ID
+      // setUnreadMap((prev) => ({
+      //   ...prev,
+      //   [msgConvId]: (prev[msgConvId] || 0) + 1
+      // }));
+    };
+
+    socket.on("newMessage_global", handleGlobalMessage);
+
+    return () => socket.off("newMessage_global", handleGlobalMessage);
+  }, [selected]);
+  // >>>>>>> origin/dam
 
   useEffect(() => {
     if (!selected?._id) return;
@@ -888,10 +1019,20 @@ export default function ChatBox({
   // ================= PIN =================
   const handlePin = async (msg) => {
     try {
-      const res = await pinMessageAPI(selected._id, msg._id);
+      // <<<<<<< HEAD
+      //       const res = await pinMessageAPI(selected._id, msg._id);
 
-      if (res?.data?.success) {
-        setPinnedMessages(res.data.data?.pinnedMessages || []);
+      //       if (res?.data?.success) {
+      //         setPinnedMessages(res.data.data?.pinnedMessages || []);
+      // =======
+      const res = await pinMessageAPI(conversationId, msg._id);
+
+      const success = res?.success || res?.data?.success;
+      const pins = res?.data?.data?.pinnedMessages || res?.data?.pinnedMessages || [];
+
+      if (success) {
+        setPinnedMessages(normalizePinnedMessages(pins));
+        // >>>>>>> origin/dam
       }
     } catch (err) {
       console.error("❌ PIN ERROR:", err.response?.data || err.message);
@@ -943,7 +1084,11 @@ export default function ChatBox({
               border: "1px solid #eee",
             }}
           />
+          // <<<<<<< HEAD
 
+          // =======
+
+          // >>>>>>> origin/dam
         )}
 
         {/* BUBBLE */}
@@ -1582,10 +1727,17 @@ export default function ChatBox({
               {onlineUsers[partnerId]
                 ? "Đang hoạt động"
                 : onlineUsers[`lastSeen_${partnerId}`]
+                  // <<<<<<< HEAD
+                  //                   ? `Hoạt động ${new Date(
+                  //                     onlineUsers[`lastSeen_${partnerId}`]
+                  //                   ).toLocaleTimeString()}`
+                  //                   : "Không hoạt động"}
+                  // =======
                   ? `Hoạt động ${new Date(
                     onlineUsers[`lastSeen_${partnerId}`]
                   ).toLocaleTimeString()}`
                   : "Không hoạt động"}
+              {/* >>>>>>> origin/dam */}
             </small>
           </div>
         </div>
@@ -1733,6 +1885,11 @@ export default function ChatBox({
         ref={containerRef}
         onClick={emitSeen}
         onScroll={(e) => {
+          // <<<<<<< HEAD
+          //           emitSeen();
+          //           handleScroll(e);
+          //         }}
+          // =======
           emitSeen();
           handleScroll(e);
         }}

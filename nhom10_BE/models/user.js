@@ -3,60 +3,60 @@ const mongoose = require('mongoose');
 
 const userSchema = new mongoose.Schema({
   // Không cần định nghĩa id, MongoDB sẽ tự sinh trường _id (ObjectId)
-  
-  username: { 
-    type: String, 
-    required: [true, 'Vui lòng nhập username'], 
+
+  username: {
+    type: String,
+    required: [true, 'Vui lòng nhập username'],
     unique: true,
     trim: true
   },
-  email: { 
-    type: String, 
-    required: [true, 'Vui lòng nhập email'], 
+  email: {
+    type: String,
+    required: [true, 'Vui lòng nhập email'],
     unique: true,
     trim: true,
     lowercase: true
   },
-  password: { 
-    type: String, 
+  password: {
+    type: String,
     required: [true, 'Vui lòng nhập mật khẩu'],
-    select: false 
+    select: false
   },
-  phone: { 
+  phone: {
     type: String,
     default: ""
   },
-  fullName: { 
+  fullName: {
     type: String,
     required: [true, 'Vui lòng nhập họ tên'],
     default: ""
   },
-  avatar: { 
-    type: String,
-    default: "" 
-  },
-  coverImage: { 
+  avatar: {
     type: String,
     default: ""
   },
-  bio: { 
+  coverImage: {
     type: String,
     default: ""
   },
-  status: { 
-    type: String, 
+  bio: {
+    type: String,
+    default: ""
+  },
+  status: {
+    type: String,
     enum: ['online', 'offline'], // (Tùy chọn) Ràng buộc các trạng thái
-    default: 'offline' 
+    default: 'offline'
   },
   currentToken: {
-      type: String,
-      default: null
+    type: String,
+    default: null
   },
-  lastSeen: { 
+  lastSeen: {
     type: Date,
     default: Date.now
   },
-  
+
   // --- THÊM DÀNH CHO JWT AUTHENTICATION FLOW ---
   refreshToken: {
     type: String,

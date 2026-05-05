@@ -1,12 +1,11 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { getMe } from "../api/userApi";
-import { connectSocket, disconnectSocket } from "../socket/socket";
-import { getSocket } from "../socket/socket";
+import { connectSocket, disconnectSocket, getSocket } from "../socket/socket";
 
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
-  // 👉 1. Khởi tạo user TỪ LOCALSTORAGE để chống giật/mất data khi F5
+  // 1. Khởi tạo user TỪ LOCALSTORAGE để chống giật/mất data khi F5
   const [user, setUser] = useState(() => {
     try {
       const savedUser = localStorage.getItem("user");
@@ -18,33 +17,53 @@ export const AuthProvider = ({ children }) => {
 
   const [loading, setLoading] = useState(true);
 
-  // ✅ CHỈ CHẠY 1 LẦN KHI LOAD TRANG
+  // ==========================
+  // HÀM SETUP SOCKET CHUNG
+  // ==========================
+  // Gom tất cả logic kết nối socket và lắng nghe sự kiện global vào đây
+  const setupSocketListeners = (token) => {
+    const socket = connectSocket(token);
+    if (!socket) return;
+
+    // Tắt listener cũ trước khi bật cái mới (chống lỗi lặp sự kiện khi login đi login lại)
+    socket.off("user_updated");
+
+    // Lắng nghe cập nhật thông tin User
+    socket.on("user_updated", (data) => {
+      console.log("🔥 WEB USER UPDATED:", data);
+      setUser((prev) => {
+        if (!prev || data.user._id !== prev._id) return prev;
+        return data.user;
+      });
+      localStorage.setItem("user", JSON.stringify(data.user));
+    });
+  };
+
+  // ==========================
+  // CHẠY 1 LẦN DUY NHẤT KHI LOAD TRANG (F5)
+  // ==========================
   useEffect(() => {
     const init = async () => {
       const token = localStorage.getItem("token");
 
-      // Nếu không có token, tắt loading và dừng lại (cho phép vào trang Login)
       if (!token) {
         setLoading(false);
         return;
       }
 
       try {
-        // Có token -> Gọi API lấy dữ liệu mới nhất từ Server
+        // Gọi API lấy dữ liệu mới nhất
         const res = await getMe();
 
         if (res.success) {
-          // 👉 2. Tùy thuộc vào cấu trúc backend trả về, bóc tách data cho chuẩn
           const freshUser = res.data?.user || res.data || res.user;
-
-          // Cập nhật State và LocalStorage với dữ liệu mới nhất
           setUser(freshUser);
           localStorage.setItem("user", JSON.stringify(freshUser));
-          
-          // Mở kết nối Socket
-          connectSocket(token);
+
+          // 👉 Khởi tạo Socket sau khi xác minh token hợp lệ
+          setupSocketListeners(token);
         } else {
-          // Token hỏng hoặc API lỗi -> Đá ra ngoài
+          // Token hỏng hoặc API báo lỗi
           logout();
         }
       } catch (err) {
@@ -56,60 +75,42 @@ export const AuthProvider = ({ children }) => {
     };
 
     init();
+
+    // Dọn dẹp listener khi Component bị Unmount
+    return () => {
+      const socket = getSocket();
+      if (socket) {
+        socket.off("user_updated");
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-      const token = localStorage.getItem("token");
-      if (!token) return;
-
-      const socket = connectSocket(token);
-
-      const handleUserUpdate = (data) => {
-        console.log("🔥 WEB USER UPDATED:", data);
-
-        setUser((prev) => {
-          if (!prev || data.user._id !== prev._id) return prev;
-          return data.user;
-        });
-
-        localStorage.setItem("user", JSON.stringify(data.user));
-      };
-
-      socket.on("user_updated", handleUserUpdate);
-
-      return () => {
-        socket.off("user_updated", handleUserUpdate);
-      };
-    }, []);
   // ==========================
   // HÀM ĐĂNG NHẬP
   // ==========================
   const login = (userData, token) => {
-    // 1. Lưu xuống LocalStorage
     localStorage.setItem("token", token);
     localStorage.setItem("userId", userData.id || userData._id);
-    localStorage.setItem("user", JSON.stringify(userData)); // 👉 Nhớ lưu user
+    localStorage.setItem("user", JSON.stringify(userData));
 
-    // 2. Cập nhật State
     setUser(userData);
 
-    // 3. Kết nối Socket
-    connectSocket(token);
+    // 👉 Khởi tạo Socket ngay sau khi Login thành công
+    setupSocketListeners(token);
   };
 
   // ==========================
   // HÀM ĐĂNG XUẤT
   // ==========================
   const logout = () => {
-    // 1. Ngắt Socket
+    // 1. Ngắt hoàn toàn kết nối Socket
     disconnectSocket();
 
-    // 2. Xóa sạch LocalStorage
-    localStorage.removeItem("token");
-    localStorage.removeItem("userId");
-    localStorage.removeItem("user"); // 👉 Xóa sạch user rác
+    // 2. Xóa sạch LocalStorage cực kỳ an toàn
+    localStorage.clear();
 
-    // 3. Xóa State
+    // 3. Clear State
     setUser(null);
   };
 
@@ -117,10 +118,16 @@ export const AuthProvider = ({ children }) => {
   // RENDER
   // ==========================
   return (
-    // 👉 3. Bổ sung setUser vào value để Panel.jsx có thể gọi khi cần update thông tin
     <AuthContext.Provider value={{ user, setUser, login, logout, loading }}>
-      {/* Trong thời gian chờ gọi API getMe, chỉ render children nếu không bị chặn bởi loading */}
-      {!loading ? children : <div className="d-flex justify-content-center mt-5">Đang tải...</div>}
+      {!loading ? (
+        children
+      ) : (
+        <div className="d-flex justify-content-center align-items-center vh-100">
+          <div className="spinner-border text-primary" role="status">
+            <span className="visually-hidden">Đang tải...</span>
+          </div>
+        </div>
+      )}
     </AuthContext.Provider>
   );
 };
