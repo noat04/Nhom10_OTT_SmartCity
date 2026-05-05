@@ -629,8 +629,6 @@ class ChatService {
             .populate("latestMessage");
     }
 
-
-    // >>>>>>> origin/dam
 }
 
 module.exports = new ChatService();

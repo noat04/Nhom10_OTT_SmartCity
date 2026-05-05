@@ -1,14 +1,17 @@
 import { Stack, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect } from "react"; // Xóa useState
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { AuthProvider } from "../context/authContext";
+import { AuthProvider, useAuth } from "../context/authContext"; // 👉 Import thêm useAuth
 import { NotificationProvider } from "../context/notificationContext";
-import { getSocket } from "../socket/socket"; // Import socket của bạn
-export default function RootLayout() {
+import { getSocket } from "../socket/socket";
+
+// 1. Tách phần điều hướng (Routing) ra một component con để có thể dùng được useAuth()
+// Vì useAuth() BẮT BUỘC phải nằm bên trong <AuthProvider>
+const RootNavigator = () => {
   const router = useRouter();
-  const [isLogin, setIsLogin] = useState(false);
-  // 👉 BỔ SUNG USEEFFECT NÀY VÀO LAYOUT TỔNG
-  // 👉 BỔ SUNG CƠ CHẾ ĐỢI SOCKET KẾT NỐI VÀO LAYOUT TỔNG
+  const { user } = useAuth(); // 👉 Lấy trạng thái user thực tế từ Context
+
+  // Cấu hình Socket lắng nghe cuộc gọi
   useEffect(() => {
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let boundSocket: any = null;
@@ -16,7 +19,6 @@ export default function RootLayout() {
     const bindIncomingCall = () => {
       const socket = getSocket();
 
-      // Nếu socket chưa sẵn sàng, đợi 500ms rồi thử lại
       if (!socket) {
         retryTimer = setTimeout(bindIncomingCall, 500);
         return;
@@ -39,12 +41,10 @@ export default function RootLayout() {
         } as any);
       };
 
-      // Đảm bảo không bị gắn trùng lặp 2 lần
       socket.off("call_incoming", handleIncomingCall);
       socket.on("call_incoming", handleIncomingCall);
     };
 
-    // Bắt đầu quá trình gắn socket
     bindIncomingCall();
 
     return () => {
@@ -54,45 +54,48 @@ export default function RootLayout() {
       }
     };
   }, []);
+
+  return (
+    <Stack screenOptions={{ headerShown: false }}>
+      {/* 👉 Dùng user làm điều kiện thay vì biến isLogin tĩnh */}
+      {!user ? (
+        <>
+          <Stack.Screen name="(auth)/login" />
+          <Stack.Screen name="(auth)/register" />
+        </>
+      ) : (
+        <>
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="chat/[id]" />
+          <Stack.Screen name="group/[id]" />
+          <Stack.Screen
+            name="call/CallScreen"
+            options={{ presentation: "fullScreenModal", animation: "fade" }}
+          />
+
+          <Stack.Screen
+            name="call/IncomingCall"
+            options={{ presentation: "transparentModal", animation: "fade" }}
+          />
+
+          <Stack.Screen
+            name="ai/[id]"
+            options={{ headerShown: true, title: 'Trợ lý AI', headerBackTitle: 'Quay lại' }}
+          />
+        </>
+      )}
+    </Stack>
+  );
+};
+
+// 2. Component Layout gốc (Bọc Providers ở ngoài cùng)
+export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <AuthProvider>
         <NotificationProvider>
-          <Stack screenOptions={{ headerShown: false }}>
-            {!isLogin ? (
-              <>
-                <Stack.Screen name="(auth)/login" />
-                <Stack.Screen name="(auth)/register" />
-              </>
-            ) : (
-              <>
-                <Stack.Screen name="(tabs)" />
-                <Stack.Screen name="chat/[id]" />
-                {/* 🔥 CALL */}
-                <Stack.Screen
-                  name="call/CallScreen"
-                  options={{
-                    presentation: "fullScreenModal",
-                    animation: "fade",
-                  }}
-                />
-
-                <Stack.Screen
-                  name="call/IncomingCall"
-                  options={{
-                    presentation: "transparentModal",
-                    animation: "fade",
-                  }}
-                />
-
-                {/* 👉 THÊM MÀN HÌNH CHAT AI VÀO ĐÂY */}
-                <Stack.Screen
-                  name="ai/[id]"
-                  options={{ headerShown: true, title: 'Trợ lý AI', headerBackTitle: 'Quay lại' }}
-                />
-              </>
-            )}
-          </Stack>
+          {/* Gọi Navigator ở bên trong để nó có thể truy cập được giá trị của AuthProvider */}
+          <RootNavigator />
         </NotificationProvider>
       </AuthProvider>
     </SafeAreaProvider>

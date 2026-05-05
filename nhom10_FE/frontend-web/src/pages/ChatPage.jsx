@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import Sidebar from "../components/Sidebar";
 import ChatBox from "../components/Chatbox";
 import ChatGroupBox from "../components/ChatGroupBox";
@@ -37,10 +37,17 @@ export default function ChatPage() {
 
   const navigate = useNavigate();
 
-  // 👉 BỔ SUNG: XỬ LÝ ĐỒNG BỘ GIAO DIỆN KHI CHUYỂN TAB
+  // Dùng useRef để luôn lấy được phòng đang chọn mới nhất
+  const selectedRef = useRef(selected);
+  useEffect(() => {
+    selectedRef.current = selected;
+  }, [selected]);
+
+  // Bộ lọc chống trùng lặp (Deduplicate) tin nhắn
+  const processedMessagesRef = useRef(new Set());
+
   useEffect(() => {
     if (tab === "ai") {
-      // Khi sang tab AI: Tự động chọn "Đoạn chat mới"
       setSelected({
         isAI: true,
         name: "Cuộc trò chuyện mới",
@@ -48,10 +55,8 @@ export default function ChatPage() {
         isNew: true,
       });
     } else if (tab === "friends") {
-      // Khi sang tab Bạn bè: Xóa selected để hiện màn hình chờ (trống)
       setSelected(null);
     } else if (tab === "chat") {
-      // Khi quay lại tab Chat: Nếu đang kẹt ở giao diện AI, tự động đổi về chat đầu tiên
       if (selected?.isAI) {
         setSelected(contacts.length > 0 ? contacts[0] : null);
       }
@@ -59,7 +64,6 @@ export default function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
-  // 👉 updateLastMessage từ nhánh đồng nghiệp (được gán vào window để ChatGroupBox gọi trực tiếp)
   const updateLastMessage = (msg) => {
     setContacts((prev) => {
       const msgConvId =
@@ -81,7 +85,6 @@ export default function ChatPage() {
         return chat;
       });
 
-      // Đẩy chat mới nhất lên đầu
       updated.sort(
         (a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0)
       );
@@ -119,7 +122,6 @@ export default function ChatPage() {
 
   const currentUserId = currentUser?._id || currentUser?.id || null;
 
-  // 👉 Logic chuẩn hóa danh sách liên hệ
   const normalizeConversation = (conversation) => {
     if (!conversation) return null;
 
@@ -162,16 +164,8 @@ export default function ChatPage() {
         typeof otherMember?.user === "object" ? otherMember.user : null;
 
       if (otherUser) {
-        name =
-          otherUser.fullName ||
-          otherUser.name ||
-          otherUser.username ||
-          name;
-
-        avatar =
-          otherUser.avatar ||
-          otherUser.profilePicture ||
-          avatar;
+        name = otherUser.fullName || otherUser.name || otherUser.username || name;
+        avatar = otherUser.avatar || otherUser.profilePicture || avatar;
       }
     }
 
@@ -241,11 +235,9 @@ export default function ChatPage() {
 
     if (res.success) {
       const conversations = Array.isArray(res.data) ? res.data : [];
-      const normalized = conversations
-        .map(normalizeConversation)
-        .filter(Boolean);
-
+      const normalized = conversations.map(normalizeConversation).filter(Boolean);
       const finalList = dedupeAndSortContacts(normalized);
+
       setContacts(finalList);
 
       if (finalList.length > 0 && !selected && tab === "chat") {
@@ -259,11 +251,8 @@ export default function ChatPage() {
 
   const loadFriendRequestBadge = async () => {
     const res = await getFriendRequestsAPI();
-
     if (res?.success) {
-      const received = Array.isArray(res.data?.received)
-        ? res.data.received
-        : [];
+      const received = Array.isArray(res.data?.received) ? res.data.received : [];
       setHasNewFriendRequest(received.length > 0);
     } else {
       setHasNewFriendRequest(false);
@@ -272,12 +261,10 @@ export default function ChatPage() {
 
   useEffect(() => {
     const token = localStorage.getItem("token");
-
     if (!token) {
       navigate("/login");
       return;
     }
-
     connectSocket(token);
     loadChats();
     loadFriendRequestBadge();
@@ -304,26 +291,43 @@ export default function ChatPage() {
           );
           return dedupeAndSortContacts(updated);
         }
-
         return dedupeAndSortContacts([normalized, ...prev]);
       });
     };
 
     onConversationCreated(handleConversationCreated);
-
     return () => {
       offConversationCreated(handleConversationCreated);
     };
   }, []);
 
+  // 👉 HÀM LẮNG NGHE TIN NHẮN (ĐÃ FIX TRIỆT ĐỂ LỖI X2 CHẤM ĐỎ)
   useEffect(() => {
     const handleNewMessageGlobal = (message) => {
       if (!message?.conversationId) return;
+
+      // 🔥 CHỐNG TRÙNG LẶP TIN NHẮN TẬN GỐC
+      const msgId = message?._id || message?.id; // Phòng hờ API trả về 'id' thay vì '_id'
+      if (msgId) {
+        if (processedMessagesRef.current.has(msgId)) {
+          console.log("⚠️ Bỏ qua tin nhắn bị đúp:", msgId);
+          return;
+        }
+
+        processedMessagesRef.current.add(msgId);
+
+        // Giữ bộ nhớ gọn nhẹ (50 tin)
+        if (processedMessagesRef.current.size > 50) {
+          const firstItem = processedMessagesRef.current.values().next().value;
+          processedMessagesRef.current.delete(firstItem);
+        }
+      }
 
       const incomingConversationId = String(
         message?.conversationId?._id || message?.conversationId
       );
 
+      // Cập nhật Chat lên đầu
       setContacts((prev) => {
         const existingIndex = prev.findIndex(
           (item) =>
@@ -349,25 +353,30 @@ export default function ChatPage() {
         return dedupeAndSortContacts(newList);
       });
 
+      // Cập nhật chấm đỏ
       setUnreadMap((prev) => {
-        const currentSelectedId = selected?._id || selected?.conversationId;
+        const currentSelectedId = selectedRef.current?._id || selectedRef.current?.conversationId;
 
         const senderId =
           typeof message?.senderId === "object"
             ? message?.senderId?._id || message?.senderId?.id
             : message?.senderId;
 
+        // Nếu mình là người gửi -> Bỏ qua
         if (String(senderId) === String(currentUserId)) {
           return prev;
         }
 
+        // Nếu mình ĐANG MỞ đúng phòng đó -> Bỏ qua
         if (String(currentSelectedId) === incomingConversationId) {
           return prev;
         }
 
+        // Lấy số lượng cũ và tăng CHÍNH XÁC thêm 1
+        const prevCount = prev[incomingConversationId] || 0;
         return {
           ...prev,
-          [incomingConversationId]: (prev[incomingConversationId] || 0) + 1,
+          [incomingConversationId]: prevCount + 1,
         };
       });
     };
@@ -377,7 +386,7 @@ export default function ChatPage() {
     return () => {
       offNewMessageGlobal(handleNewMessageGlobal);
     };
-  }, [selected]);
+  }, []); // Cực kỳ quan trọng: Array rỗng [] giúp hàm không bị gắn lại 2 lần
 
   useEffect(() => {
     const handleFriendRequestReceived = () => {
@@ -393,7 +402,6 @@ export default function ChatPage() {
     };
   }, [tab, friendSection]);
 
-  // Socket listeners cho Group Chat
   useEffect(() => {
     const refreshChats = () => {
       loadChats();
@@ -409,7 +417,6 @@ export default function ChatPage() {
     return () => { };
   }, []);
 
-  // Tắt chấm đỏ
   useEffect(() => {
     if (tab === "friends" && friendSection === "requests") {
       setHasNewFriendRequest(false);
@@ -435,7 +442,7 @@ export default function ChatPage() {
 
         <Sidebar
           tab={tab}
-          setTab={setTab} // 👉 THÊM prop setTab để Sidebar có thể điều hướng tự động
+          setTab={setTab}
           contacts={contacts}
           selected={selected}
           friendSection={friendSection}
@@ -460,9 +467,7 @@ export default function ChatPage() {
           }}
         />
 
-        {/* 👉 ĐÃ SỬA LẠI ĐIỀU KIỆN RENDER GIAO DIỆN CHÍNH */}
         {tab === "friends" ? (
-          // LUÔN LUÔN RENDER CHATBOX NẾU ĐANG Ở TAB FRIENDS ĐỂ HIỂN THỊ UI BẠN BÈ
           <ChatBox
             selected={selected}
             tab={tab}
@@ -497,7 +502,6 @@ export default function ChatPage() {
             setUnreadMap={setUnreadMap}
           />
         )}
-
       </div>
     </div>
   );

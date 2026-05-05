@@ -144,3 +144,105 @@ export const deleteMessageAPI = async (data) => {
   const res = await api.delete("/chat/message/delete", { data });
   return res.data;
 };
+
+// =========================================================================
+// ============================== GROUP CHAT ===============================
+// =========================================================================
+
+export const createGroupAPI = async (payload) => {
+  try {
+    const res = await api.post("/chat/group/create", payload);
+    return res.data;
+  } catch (err) {
+    console.log("❌ createGroupAPI:", err?.response?.data || err.message);
+    return {
+      success: false,
+      message: err?.response?.data?.message || "Không thể tạo nhóm",
+    };
+  }
+};
+
+export const getGroupInfoAPI = async (conversationId) => {
+  try {
+    const res = await api.get(`/chat/group/${conversationId}/info`);
+    return res.data;
+  } catch (err) {
+    console.log("❌ getGroupInfoAPI:", err?.response?.data || err.message);
+    return { success: false, data: null };
+  }
+};
+
+export const getGroupMembersAPI = async (conversationId) => {
+  try {
+    const res = await api.get(`/chat/group/${conversationId}/members`);
+    return res.data;
+  } catch (err) {
+    console.log("❌ getGroupMembersAPI:", err?.response?.data || err.message);
+    return { success: false, data: [] };
+  }
+};
+
+export const addGroupMembersAPI = async (payload) => {
+  try {
+    const res = await api.post("/chat/group/add-members", payload);
+    return res.data;
+  } catch (err) {
+    console.log("❌ addGroupMembersAPI:", err?.response?.data || err.message);
+    return {
+      success: false,
+      message: err?.response?.data?.message || "Lỗi thêm thành viên",
+    };
+  }
+};
+
+export const removeGroupMemberAPI = async (payload) => {
+  try {
+    const res = await api.post("/chat/group/remove-member", payload);
+    return res.data;
+  } catch (err) {
+    console.log("❌ removeGroupMemberAPI:", err?.response?.data || err.message);
+    return {
+      success: false,
+      message: err?.response?.data?.message || "Lỗi xóa thành viên",
+    };
+  }
+};
+
+export const leaveGroupAPI = async (payload) => {
+  try {
+    const res = await api.post("/chat/group/leave", payload);
+    return res.data;
+  } catch (err) {
+    console.log("❌ leaveGroupAPI:", err?.response?.data || err.message);
+    return {
+      success: false,
+      message: err?.response?.data?.message || "Lỗi rời nhóm",
+    };
+  }
+};
+
+export const updateGroupInfoAPI = async (payload) => {
+  try {
+    const res = await api.put("/chat/group/update-info", payload);
+    return res.data;
+  } catch (err) {
+    console.log("❌ updateGroupInfoAPI:", err?.response?.data || err.message);
+    return {
+      success: false,
+      message: err?.response?.data?.message || "Lỗi cập nhật thông tin nhóm",
+    };
+  }
+};
+
+export const promoteGroupAdminAPI = async (payload) => {
+  try {
+    const res = await api.post("/chat/group/promote-admin", payload);
+    return res.data;
+  } catch (err) {
+    console.log("❌ promoteGroupAdminAPI:", err?.response?.data || err.message);
+    return {
+      success: false,
+      message: err?.response?.data?.message || "Lỗi chuyển quyền Admin",
+    };
+  }
+};

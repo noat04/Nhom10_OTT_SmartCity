@@ -10,7 +10,7 @@ export const connectSocket = (token) => {
     }
     return socket;
   }
-
+  
   socket = io("http://localhost:3000", {
     auth: { token },
     transports: ["websocket", "polling"],

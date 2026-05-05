@@ -343,35 +343,70 @@ export default function ChatScreen() {
     router.push("/(tabs)/contacts");
   };
 
-  const renderItem = ({ item }: any) => (
-    <TouchableOpacity
-      onPress={() =>
-        router.push({
-          pathname: "/chat/[id]",
-          params: {
-            id: item.conversationId,
-            conversationId: item.conversationId,
-            name: item.name,
-            avatar: item.img,
-            type: item.type,
-            partnerId: item.partnerId, // Truyền userId của người kia để tiện cho việc gọi video, nếu là nhóm thì truyền conversationId cũng được vì bên CallScreen sẽ không cần lấy thông tin người kia nữa
-          },
-        })
-      }
-      style={styles.chatItem}
-    >
-      <Image source={{ uri: item.img }} style={styles.avatar} />
+  // const renderItem = ({ item }: any) => (
+  //   <TouchableOpacity
+  //     onPress={() =>
+  //       router.push({
+  //         pathname: "/chat/[id]",
+  //         params: {
+  //           id: item.conversationId,
+  //           conversationId: item.conversationId,
+  //           name: item.name,
+  //           avatar: item.img,
+  //           type: item.type,
+  //           partnerId: item.partnerId, // Truyền userId của người kia để tiện cho việc gọi video, nếu là nhóm thì truyền conversationId cũng được vì bên CallScreen sẽ không cần lấy thông tin người kia nữa
+  //         },
+  //       })
+  //     }
+  //     style={styles.chatItem}
+  //   >
+  //     <Image source={{ uri: item.img }} style={styles.avatar} />
 
-      <View style={{ flex: 1 }}>
-        <Text style={styles.name} numberOfLines={1}>
-          {item.name}
-        </Text>
-        <Text style={styles.msg} numberOfLines={1}>
-          {item.msg}
-        </Text>
-      </View>
-    </TouchableOpacity>
-  );
+  //     <View style={{ flex: 1 }}>
+  //       <Text style={styles.name} numberOfLines={1}>
+  //         {item.name}
+  //       </Text>
+  //       <Text style={styles.msg} numberOfLines={1}>
+  //         {item.msg}
+  //       </Text>
+  //     </View>
+  //   </TouchableOpacity>
+  // );
+  const renderItem = ({ item }: any) => {
+    // 👉 Kiểm tra loại cuộc trò chuyện để quyết định màn hình đích
+    const targetPath = item.type === "group" ? "/group/[id]" : "/chat/[id]";
+
+    return (
+      <TouchableOpacity
+        onPress={() =>
+          router.push({
+            pathname: targetPath,
+            params: {
+              id: item.conversationId,
+              conversationId: item.conversationId,
+              name: item.name,
+              avatar: item.img,
+              type: item.type,
+              // partnerId chỉ thực sự cần cho chat 1-1 để gọi điện
+              partnerId: item.partnerId,
+            },
+          } as any) // Thêm 'as any' để tránh lỗi TypeScript cảnh báo dynamic route của Expo
+        }
+        style={styles.chatItem}
+      >
+        <Image source={{ uri: item.img }} style={styles.avatar} />
+
+        <View style={{ flex: 1 }}>
+          <Text style={styles.name} numberOfLines={1}>
+            {item.name}
+          </Text>
+          <Text style={styles.msg} numberOfLines={1}>
+            {item.msg}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   if (loading) {
     return (

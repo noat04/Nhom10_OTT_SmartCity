@@ -310,10 +310,10 @@ export default function ChatBox({
     // >>>>>>> origin/dam
 
     return () => {
-      socket.emit(
-        "leaveConversation",
-        selected?.conversationId || selected?._id
-      );
+      // socket.emit(
+      //   "leaveConversation",
+      //   selected?.conversationId || selected?._id
+      // );
       socket.off("newMessage", handleNewMessage);
       socket.off("message_seen", handleSeen);
       socket.off("message_edited", handleEdited);
@@ -721,55 +721,6 @@ export default function ChatBox({
       [selected._id]: 0
     }));
   }, [selected]);
-
-  // <<<<<<< HEAD
-
-  // =======
-  useEffect(() => {
-    const socket = getSocket();
-    if (!socket) return;
-
-    const handleGlobalMessage = (msg) => {
-      // 🔥 ID của chat đang mở
-      const currentConversationId =
-        selected?.conversationId || selected?._id;
-
-      const currentId =
-        typeof currentConversationId === "object"
-          ? currentConversationId._id
-          : currentConversationId;
-
-      // 🔥 ID của message nhận được
-      const msgConvId =
-        typeof msg.conversationId === "object"
-          ? msg.conversationId._id
-          : msg.conversationId;
-
-      // 🔥 LUÔN update latestMessage (QUAN TRỌNG)
-      if (typeof window.updateLastMessage === "function") {
-        window.updateLastMessage(msg);
-      }
-
-      // 👉 chỉ tăng unread nếu KHÔNG phải chat đang mở
-      if (String(msgConvId) !== String(currentId)) {
-        setUnreadMap((prev) => ({
-          ...prev,
-          [msgConvId]: (prev[msgConvId] || 0) + 1
-        }));
-      }
-
-      // ✅ tăng unread đúng ID
-      // setUnreadMap((prev) => ({
-      //   ...prev,
-      //   [msgConvId]: (prev[msgConvId] || 0) + 1
-      // }));
-    };
-
-    socket.on("newMessage_global", handleGlobalMessage);
-
-    return () => socket.off("newMessage_global", handleGlobalMessage);
-  }, [selected]);
-  // >>>>>>> origin/dam
 
   useEffect(() => {
     if (!selected?._id) return;
