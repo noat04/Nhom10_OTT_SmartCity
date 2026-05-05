@@ -106,7 +106,7 @@ class ChatController {
 
             // 1. Save DB
             const savedMessage = await chatService.saveMessage(messageData);
-
+            console.log("📤 API EMIT NEW MESSAGE", savedMessage._id);
             // 2. Emit realtime
             const socketUtil = require('../../shared/utils/socket');
             const io = socketUtil.getIO();

@@ -155,23 +155,48 @@ module.exports = {
             });
 
             // 5. GỬI TIN NHẮN TRỰC TIẾP QUA SOCKET
-            socket.on('send_message', async (data) => {
+            // socket.on('send_message', async (data) => {
+            //     try {
+            //         data.senderId = userId;
+            //         const savedMessage = await chatService.saveMessage(data);
+
+            //         io.to(data.conversationId.toString()).emit('newMessage', savedMessage);
+
+            //         const Conversation = require('../../../models/conversation');
+            //         const conv = await Conversation.findById(data.conversationId);
+
+            //         conv.members.forEach(m => {
+            //             io.to(m.user.toString()).emit("newMessage_global", savedMessage);
+            //         });
+
+            //     } catch (error) {
+            //         console.error("Lỗi gửi tin nhắn:", error.message);
+            //         socket.emit("error", "Không thể gửi tin nhắn!");
+            //     }
+            // });
+            socket.on("notify_new_message", async ({ conversationId, messageId }) => {
                 try {
-                    data.senderId = userId;
-                    const savedMessage = await chatService.saveMessage(data);
+                    const Message = require("../../../models/message");
+                    const Conversation = require("../../../models/conversation");
 
-                    io.to(data.conversationId.toString()).emit('newMessage', savedMessage);
+                    const populatedMessage = await Message.findById(messageId)
+                        .populate("senderId", "fullName avatar")
+                        .populate("replyTo")
+                        .populate("seenBy.userId", "fullName avatar")
+                        .populate("deliveredTo.userId", "fullName avatar");
 
-                    const Conversation = require('../../../models/conversation');
-                    const conv = await Conversation.findById(data.conversationId);
+                    if (!populatedMessage) return;
 
-                    conv.members.forEach(m => {
-                        io.to(m.user.toString()).emit("newMessage_global", savedMessage);
+                    io.to(conversationId.toString()).emit("newMessage", populatedMessage);
+
+                    const conv = await Conversation.findById(conversationId);
+
+                    conv.members.forEach((m) => {
+                        io.to(m.user.toString()).emit("newMessage_global", populatedMessage);
                     });
 
                 } catch (error) {
-                    console.error("Lỗi gửi tin nhắn:", error.message);
-                    socket.emit("error", "Không thể gửi tin nhắn!");
+                    console.error("notify_new_message error:", error.message);
                 }
             });
 

@@ -14,22 +14,6 @@ router.use(verifyToken);
 router.post('/init-1-1', chatController.initOneToOneChat);
 router.get('/conversations', chatController.getConversations);
 
-// <<<<<<< HEAD
-// //Endpoint sửa, xóa tin nhắn
-// router.put("/message/edit", chatController.editMessage);
-// router.delete("/message/delete", chatController.deleteMessage);
-
-// //Reaction
-// router.post('/message/react', chatController.reactMessage);
-
-// //Tìm kiếm tin nhắn
-// router.get('/message/search', chatController.searchMessages);
-
-// //Ghim tin nhắn
-// router.post('/message/pin', chatController.pinMessage);
-// router.get('/message/pinned/:conversationId', chatController.getPinnedMessages);
-
-// =======
 // ======================================
 // MESSAGE APIs
 // ======================================
@@ -70,6 +54,4 @@ router.post('/group/promote-admin', chatController.promoteAdmin);
 // HISTORY (KEEP LAST TO AVOID CONFLICT)
 // ======================================
 router.get('/:conversationId/history', chatController.getHistory);
-// >>>>>>> origin/dam
-
 module.exports = router;
