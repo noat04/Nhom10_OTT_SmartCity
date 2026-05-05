@@ -18,6 +18,8 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
+import * as DocumentPicker from "expo-document-picker";
+import * as ImagePicker from "expo-image-picker";
 import {
   deleteMessageAPI,
   editMessageAPI,
@@ -29,10 +31,8 @@ import {
   searchMessagesAPI,
   sendMessageAPI,
 } from "../../service/chat.api";
+// import { callUser } from "../../socket/callSocket";
 import { getSocket } from "../../socket/socket";
-
-import * as DocumentPicker from "expo-document-picker";
-import * as ImagePicker from "expo-image-picker";
 
 type Reaction = { userId: any; type: string };
 type CallInfo = { duration: number; status: string; callType: string };
@@ -59,11 +59,13 @@ const emojiMap: Record<string, string> = {
 
 export default function ChatDetail() {
   const insets = useSafeAreaInsets();
-  const { id, name, avatar } = useLocalSearchParams();
-
+  // 👉 1. BỔ SUNG partnerId VÀO ĐÂY ĐỂ HỨNG DỮ LIỆU TỪ TRANG TRƯỚC TRUYỀN SANG
+  const { id, name, avatar, partnerId } = useLocalSearchParams();
   const conversationId = Array.isArray(id) ? id[0] : id;
   const displayName = Array.isArray(name) ? name[0] : name;
   const displayAvatar = Array.isArray(avatar) ? avatar[0] : avatar;
+  // 👉 2. ĐẢM BẢO NÓ LÀ CHUỖI (STRING)
+  const finalPartnerId = Array.isArray(partnerId) ? partnerId[0] : partnerId;
 
   const [message, setMessage] = useState("");
   const [chat, setChat] = useState<Message[]>([]);
@@ -93,6 +95,11 @@ export default function ChatDetail() {
   const messageIndexMap = useRef<{ [key: string]: number }>({});
 
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
+
+  // Thêm state này để nhớ loại cuộc gọi (audio hay video)
+  const [pendingCallType, setPendingCallType] = useState<"audio" | "video" | null>(null);
+
+
   useEffect(() => {
     const map: any = {};
     chat.forEach((msg, index) => {
@@ -100,6 +107,47 @@ export default function ChatDetail() {
     });
     messageIndexMap.current = map;
   }, [chat]);
+
+  // 👉 HÀM XỬ LÝ GỌI ĐIỆN
+  // 👉 3. SỬA LẠI HÀM XỬ LÝ GỌI ĐIỆN
+  // 👉 HÀM XỬ LÝ GỌI ĐIỆN (ĐÃ SỬA)
+  // const handleStartCall = (type: "audio" | "video") => {
+  //   if (!finalPartnerId) {
+  //     console.log("⚠️ partnerId không hợp lệ:", finalPartnerId);
+  //     Alert.alert("Lỗi", "Không tìm thấy thông tin người nhận cuộc gọi.");
+  //     return;
+  //   }
+
+  //   // 1. Lưu lại loại cuộc gọi
+  //   setPendingCallType(type);
+
+  //   // 2. CHỈ bắn sự kiện Socket yêu cầu Backend tạo cuộc gọi (Không tự tạo callId nữa)
+  //   callUser(conversationId, finalPartnerId, type);
+
+  //   // ❌ KHÔNG DÙNG router.push Ở ĐÂY NỮA
+  // };
+  // 👉 HÀM XỬ LÝ GỌI ĐIỆN
+  const handleStartCall = (type: "audio" | "video") => {
+    if (!finalPartnerId) {
+      Alert.alert("Lỗi", "Không tìm thấy thông tin người nhận cuộc gọi.");
+      return;
+    }
+
+    const socket = getSocket();
+    if (!socket) {
+      Alert.alert("Lỗi", "Chưa kết nối máy chủ, vui lòng thử lại.");
+      return;
+    }
+
+    setPendingCallType(type);
+
+    // 👉 GỌI TRỰC TIẾP TỪ SOCKET (BỎ QUA FILE callSocket.js)
+    socket.emit("call_init", {
+      conversationId: conversationId,
+      receiverId: finalPartnerId,
+      type: type,
+    });
+  };
 
 
   // ✏️ EDIT
@@ -212,6 +260,33 @@ export default function ChatDetail() {
 
     return () => clearTimeout(delayDebounceFn);
   }, [searchQuery, isSearching, conversationId]);
+
+  // 👉 LẮNG NGHE KHI BACKEND TẠO CUỘC GỌI THÀNH CÔNG THÌ MỚI CHUYỂN TRANG
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+
+    const handleCallCreated = ({ callId }: { callId: string }) => {
+      if (pendingCallType) {
+        router.push({
+          pathname: "/call/CallScreen",
+          params: {
+            callId: callId,
+            partnerId: finalPartnerId,
+            conversationId: conversationId, // 👉 BỔ SUNG DÒNG NÀY
+            isCaller: "true",
+            type: pendingCallType,
+          },
+        } as any);
+        setPendingCallType(null);
+      }
+    };
+    socket.on("call_created", handleCallCreated);
+
+    return () => {
+      socket.off("call_created", handleCallCreated);
+    };
+  }, [pendingCallType, finalPartnerId]);
 
   // ================= TẢI TIN NHẮN LẦN ĐẦU =================
   const loadMessages = async () => {
@@ -510,8 +585,17 @@ export default function ChatDetail() {
                 <TouchableOpacity onPress={() => setIsSearching(true)}>
                   <Ionicons name="search" size={24} color="#0d6efd" />
                 </TouchableOpacity>
-                <TouchableOpacity><Ionicons name="call-outline" size={24} color="#0d6efd" /></TouchableOpacity>
-                <TouchableOpacity><Ionicons name="videocam-outline" size={26} color="#0d6efd" /></TouchableOpacity>
+                {/* <TouchableOpacity><Ionicons name="call-outline" size={24} color="#0d6efd" /></TouchableOpacity>
+                <TouchableOpacity><Ionicons name="videocam-outline" size={26} color="#0d6efd" /></TouchableOpacity> */}
+                {/* 👉 GẮN SỰ KIỆN GỌI AUDIO VÀO ĐÂY */}
+                <TouchableOpacity onPress={() => handleStartCall("audio")}>
+                  <Ionicons name="call-outline" size={24} color="#0d6efd" />
+                </TouchableOpacity>
+
+                {/* 👉 GẮN SỰ KIỆN GỌI VIDEO VÀO ĐÂY */}
+                <TouchableOpacity onPress={() => handleStartCall("video")}>
+                  <Ionicons name="videocam-outline" size={26} color="#0d6efd" />
+                </TouchableOpacity>
               </View>
             </View>
           )}

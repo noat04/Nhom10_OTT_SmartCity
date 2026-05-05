@@ -742,13 +742,13 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
     );
   };
 
-    // ================= RENDER MESSAGE =================
+  // ================= RENDER MESSAGE =================
   const renderMessage = (m, index) => {
     const senderId =
       typeof m.senderId === "object" ? m.senderId._id : m.senderId;
 
-    
-      // ===== SYSTEM GROUP EVENT =====
+
+    // ===== SYSTEM GROUP EVENT =====
     if (m.type === "system" || m.messageType === "group_event" || !m.senderId) {
       return (
         <div
@@ -785,14 +785,13 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
     const deliveredUsers = (m.deliveredTo || [])
       .filter((d) => String(d.userId?._id || d.userId) !== String(myId))
       .map((d) => d.userId?.fullName || "Thành viên");
-    
+
     return (
       <div
         id={m._id}
         key={m._id || index}
-        className={`d-flex mb-4 ${
-          isMine ? "justify-content-end" : "justify-content-start"
-        }`}
+        className={`d-flex mb-4 ${isMine ? "justify-content-end" : "justify-content-start"
+          }`}
         onMouseEnter={() => setHoverId(m._id)}
         onMouseLeave={() => setHoverId(null)}
       >
@@ -1069,8 +1068,8 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
     );
   };
 
-    return (
-    <div className="col-8 d-flex flex-column h-100 border-start border-end p-0 position-relative">
+  return (
+    <div className="col-9 d-flex flex-column h-100 border-start border-end p-0 position-relative">
       {/* HEADER */}
       <div className="p-3 border-bottom bg-white d-flex justify-content-between align-items-center shadow-sm">
         <div>
@@ -1198,12 +1197,12 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
               {activeMsg?.isDeleted
                 ? "Tin nhắn đã thu hồi"
                 : activeMsg?.type === "image"
-                ? "📷 Hình ảnh"
-                : activeMsg?.type === "video"
-                ? "🎥 Video"
-                : activeMsg?.type === "file"
-                ? "📎 File"
-                : activeMsg?.content}
+                  ? "📷 Hình ảnh"
+                  : activeMsg?.type === "video"
+                    ? "🎥 Video"
+                    : activeMsg?.type === "file"
+                      ? "📎 File"
+                      : activeMsg?.content}
             </div>
           </div>
         );
@@ -1260,12 +1259,12 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
                   {msg?.isDeleted
                     ? "Tin nhắn đã thu hồi"
                     : msg?.type === "image"
-                    ? "📷 Hình ảnh"
-                    : msg?.type === "video"
-                    ? "🎥 Video"
-                    : msg?.type === "file"
-                    ? "📎 File"
-                    : msg?.content}
+                      ? "📷 Hình ảnh"
+                      : msg?.type === "video"
+                        ? "🎥 Video"
+                        : msg?.type === "file"
+                          ? "📎 File"
+                          : msg?.content}
                 </div>
 
                 <span
@@ -1314,10 +1313,10 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
             {replyMessage.type === "text"
               ? replyMessage.content
               : replyMessage.type === "image"
-              ? "📷 Hình ảnh"
-              : replyMessage.type === "video"
-              ? "🎥 Video"
-              : "📎 File"}
+                ? "📷 Hình ảnh"
+                : replyMessage.type === "video"
+                  ? "🎥 Video"
+                  : "📎 File"}
           </b>
 
           <span

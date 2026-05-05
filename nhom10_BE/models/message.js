@@ -1,16 +1,18 @@
 const mongoose = require('mongoose');
 
 const messageSchema = new mongoose.Schema({
+    // 1. Chuyển từ String sang ObjectId và thêm 'ref'
     conversationId: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'Conversation',
+        ref: 'Conversation', // Tham chiếu đến Model Conversation
         required: true,
-        index: true
+        index: true // Bạn giữ index ở đây là RẤT CHUẨN, vì ta sẽ query tin nhắn theo nhóm chat liên tục
     },
 
+    // 2. Chuyển từ String sang ObjectId và thêm 'ref'
     senderId: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
+        ref: 'User', // Tham chiếu đến Model User
         required: true
     },
 
@@ -19,12 +21,14 @@ const messageSchema = new mongoose.Schema({
         default: ""
     },
 
+    // 👉 Gộp type: Hỗ trợ 'call' (của bạn) và 'system' (của đồng nghiệp)
     type: {
         type: String,
         enum: ['text', 'image', 'video', 'file', 'call', 'system'],
         default: 'text'
     },
 
+    // Tin nhắn hệ thống (từ nhánh đồng nghiệp)
     systemType: {
         type: String,
         enum: [
@@ -39,15 +43,16 @@ const messageSchema = new mongoose.Schema({
         default: null
     },
 
+    // 👉 Lưu chi tiết cuộc gọi (từ nhánh của bạn)
     callInfo: {
-        duration: { type: Number, default: 0 },
+        duration: { type: Number, default: 0 }, // Thời lượng tính bằng giây
         status: { type: String, enum: ['ended', 'missed', 'rejected'] },
         callType: { type: String, enum: ['video', 'audio'] }
     },
 
-    fileUrl: String,
-    fileName: String,
-    fileSize: Number,
+    fileUrl: { type: String },
+    fileName: { type: String },
+    fileSize: { type: Number },
 
     thumbnail: {
         type: String,
@@ -84,15 +89,18 @@ const messageSchema = new mongoose.Schema({
         {
             userId: {
                 type: mongoose.Schema.Types.ObjectId,
-                ref: 'User'
+                ref: 'User',
+                required: true // Giữ nguyên required: true cho an toàn dữ liệu
             },
             type: {
                 type: String,
-                enum: ['like', 'love', 'haha', 'sad', 'wow', 'angry']
+                enum: ['like', 'love', 'haha', 'sad', 'wow', 'angry'],
+                required: true
             }
         }
     ],
 
+    // Mảng nhắc tên người dùng (từ nhánh đồng nghiệp)
     mentions: [
         {
             type: mongoose.Schema.Types.ObjectId,
@@ -121,6 +129,7 @@ const messageSchema = new mongoose.Schema({
         default: false
     },
 
+    // Thu hồi tin nhắn (từ nhánh đồng nghiệp)
     isUnsent: {
         type: Boolean,
         default: false
@@ -132,7 +141,7 @@ const messageSchema = new mongoose.Schema({
     }
 
 }, {
-    timestamps: true
+    timestamps: true // Tự động tạo createdAt, updatedAt
 });
 
 module.exports = mongoose.model('Message', messageSchema);

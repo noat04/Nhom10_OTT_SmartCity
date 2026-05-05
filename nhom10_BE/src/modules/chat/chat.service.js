@@ -1,18 +1,17 @@
-const Conversation = require('../../../models/conversation');
-const Message = require('../../../models/message');
-const User = require('../../../models/user');
-// Thêm dòng này lên đầu file chat.service.js nếu chưa có
+const Conversation = require("../../../models/conversation");
+const Message = require("../../../models/message");
+const User = require("../../../models/user");
 const FileUpload = require('../../../models/fileupload');
+
 const mongoose = require("mongoose");
 class ChatService {
-
     // 1. LẤY HOẶC TẠO CUỘC HỘI THOẠI 1-1
     async getOrCreateOneToOneConversation(user1Id, user2Id) {
         // Tìm cuộc hội thoại private có chứa CẢ 2 user trong mảng members
         const sharedConversation = await Conversation.findOne({
-            type: 'private',
-            'members.user': { $all: [user1Id, user2Id] }, // $all: Yêu cầu phải có mặt cả 2 ID
-            members: { $size: 2 } // $size: Đảm bảo chỉ có đúng 2 thành viên
+            type: "private",
+            "members.user": { $all: [user1Id, user2Id] }, // $all: Yêu cầu phải có mặt cả 2 ID
+            members: { $size: 2 }, // $size: Đảm bảo chỉ có đúng 2 thành viên
         });
 
         if (sharedConversation) {
@@ -21,18 +20,16 @@ class ChatService {
 
         // Nếu chưa có thì tạo mới (Gộp luôn việc insert User vào mảng trong 1 thao tác duy nhất)
         const newConversation = await Conversation.create({
-            type: 'private',
+            type: "private",
             createdBy: user1Id,
             members: [
-                { user: user1Id, role: 'member' },
-                { user: user2Id, role: 'member' }
-            ]
+                { user: user1Id, role: "member" },
+                { user: user2Id, role: "member" },
+            ],
         });
 
         return newConversation._id;
     }
-
-
     // ==============================
     // 2. SAVE MESSAGE (FULL FEATURE)
     // ==============================
@@ -174,40 +171,14 @@ class ChatService {
         });
     }
 
-
-    // 5. THÊM HOẶC CẬP NHẬT REACTION VÀO MẢNG
-    async addOrUpdateReaction(messageId, userId, type) {
-        const message = await Message.findById(messageId);
-        if (!message) throw new Error("Tin nhắn không tồn tại!");
-
-        // 1. Tìm xem user đã thả cảm xúc vào tin nhắn này chưa (Duyệt mảng trực tiếp)
-        const existingReactionIndex = message.reactions.findIndex(
-            r => r.userId.toString() === userId.toString()
-        );
-
-        if (existingReactionIndex !== -1) {
-            if (message.reactions[existingReactionIndex].type === type) {
-                // Kịch bản A: Bấm lại cảm xúc cũ -> Hủy (Xóa khỏi mảng)
-                message.reactions.splice(existingReactionIndex, 1);
-            } else {
-                // Kịch bản B: Đổi cảm xúc khác -> Cập nhật trực tiếp phần tử trong mảng
-                message.reactions[existingReactionIndex].type = type;
-            }
-        } else {
-            // Kịch bản C: Chưa từng thả -> Push bản ghi mới vào mảng
-            message.reactions.push({ userId, type });
-        }
-
-        await message.save();
-
-        // Trả về mảng reactions mới nhất để Socket.io phát đi cho client
-        return message.reactions;
-    }
-
     // ==============================
     // 5. SEEN
     // ==============================
     async markAsSeen(conversationId, userId) {
+        if (!mongoose.Types.ObjectId.isValid(conversationId)) {
+            console.log("⚠️ Bỏ qua markAsSeen do ID không phải là ObjectId hợp lệ");
+            return { success: false, message: "Invalid ID" };
+        }
         await Message.updateMany(
             {
                 conversationId,
@@ -686,6 +657,7 @@ class ChatService {
     }
 
 
+    // >>>>>>> origin/dam
 }
 
 module.exports = new ChatService();

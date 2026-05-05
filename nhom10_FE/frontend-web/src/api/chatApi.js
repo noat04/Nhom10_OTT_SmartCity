@@ -120,6 +120,8 @@ export const editMessageAPI = async (data) => {
 };
 
 // ==============================
+// <<<<<<< HEAD
+// =======
 // Thu hồi tin nhắn
 // ==============================
 export const unsendMessageAPI = async (data) => {
@@ -136,6 +138,7 @@ export const unsendMessageAPI = async (data) => {
 };
 
 // ==============================
+// >>>>>>> origin/dam
 // Xóa tin nhắn
 // ==============================
 export const deleteMessageAPI = async (data) => {
@@ -164,6 +167,10 @@ export const pinMessageAPI = (conversationId, messageId) => {
     messageId,
   });
 };
+// <<<<<<< HEAD
+// export const getPinnedMessagesAPI = (conversationId) => {
+//   return api.get(`/chat/message/pinned/${conversationId}`);
+// =======
 
 export const getPinnedMessagesAPI = async (conversationId) => {
   try {
@@ -252,4 +259,5 @@ export const createGroupAPI = async (data) => {
       message: err?.response?.data?.message || "Tạo nhóm thất bại",
     };
   }
+  // >>>>>>> origin/dam
 };

@@ -7,7 +7,7 @@ import OtpPage from "./pages/OtpPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 
 import { useAuth } from "./context/AuthContext";
-import { connectSocket, getSocket } from "./socket/socket";
+import { getSocket } from "./socket/socket"; // CHỈ IMPORT getSocket
 
 export default function App() {
   const { user, login, logout } = useAuth();
@@ -15,15 +15,16 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
 
-    const token = localStorage.getItem("token");
-    if (!token) return;
+    // Lúc này chắc chắn Socket đã được connect bên trong AuthContext rồi
+    const socket = getSocket();
+    if (!socket) return;
 
-    const socket = connectSocket(token);
-
+    // ✅ CONNECT
     const handleConnect = () => {
-      console.log("✅ Connected:", socket.id);
+      console.log("✅ App Connected ID:", socket.id);
     };
 
+    // 🔥 FORCE LOGOUT
     const handleForceLogout = () => {
       alert("Bạn đã đăng nhập ở thiết bị khác!");
       logout();
@@ -36,28 +37,15 @@ export default function App() {
       socket.off("connect", handleConnect);
       socket.off("force_logout", handleForceLogout);
     };
-  }, [user, logout]);
+  }, [user, logout]); // Chạy lại nếu user thay đổi
 
   return (
     <Router>
       <Routes>
-        <Route
-          path="/login"
-          element={!user ? <AuthPage /> : <Navigate to="/" replace />}
-        />
-
-        <Route
-          path="/otp"
-          element={!user ? <OtpPage onLogin={login} /> : <Navigate to="/" replace />}
-        />
-
-        <Route
-          path="/"
-          element={user ? <ChatPage onLogout={logout} /> : <Navigate to="/login" replace />}
-        />
-
+        <Route path="/login" element={!user ? <AuthPage /> : <Navigate to="/" replace />} />
+        <Route path="/otp" element={!user ? <OtpPage onLogin={login} /> : <Navigate to="/" replace />} />
+        <Route path="/" element={user ? <ChatPage onLogout={logout} /> : <Navigate to="/login" replace />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>

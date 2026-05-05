@@ -3,7 +3,13 @@ import { io } from "socket.io-client";
 let socket = null;
 
 export const connectSocket = (token) => {
-  if (socket) return socket;
+  if (socket) {
+    // Nếu biến socket còn tồn tại nhưng đường truyền bị ngắt -> chủ động ép nó kết nối lại
+    if (!socket.connected) {
+      socket.connect();
+    }
+    return socket;
+  }
 
   socket = io("http://localhost:3000", {
     auth: { token },
@@ -90,6 +96,17 @@ export const offConversationCreated = (callback) => {
   socket.off("conversation_created", callback);
 };
 
+// ✅ realtime update conversation list khi có tin nhắn mới (Từ nhánh HEAD)
+export const onNewMessageGlobal = (callback) => {
+  if (!socket) return;
+  socket.on("newMessage_global", callback);
+};
+
+export const offNewMessageGlobal = (callback) => {
+  if (!socket) return;
+  socket.off("newMessage_global", callback);
+};
+
 export const disconnectSocket = () => {
   if (socket) {
     socket.disconnect();
@@ -97,8 +114,7 @@ export const disconnectSocket = () => {
   }
 };
 
-//Chat group:
-
+// ================= CHAT GROUP ================= (Từ nhánh origin/dam)
 export const onConversationUpdated = (callback) => {
   if (!socket) return;
   socket.on("conversation_updated", callback);
@@ -144,8 +160,7 @@ export const onMessageUnsent = (callback) => {
   socket.on("message_unsent", callback);
 };
 
-
-// ================= MESSAGE REALTIME =================
+// ================= MESSAGE REALTIME ================= (Từ nhánh origin/dam)
 export const onReceiveMessage = (callback) => {
   if (!socket) return;
   socket.on("receive_message", callback);

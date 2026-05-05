@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import { FaUserPlus } from "react-icons/fa";
+import { FaUserPlus, FaRobot, FaPlus, FaTrash } from "react-icons/fa";
 import { searchUsersAPI, sendFriendRequestAPI } from "../api/friendAPI";
+import { getAiSessionsAPI, deleteAiSessionAPI } from "../api/aiAPI";
 import CreateGroupModal from "./CreateGroupModal";
 
 export default function Sidebar({
@@ -13,9 +14,10 @@ export default function Sidebar({
   hasNewFriendRequest,
   showAddFriendModal,
   setShowAddFriendModal,
+  unreadMap,
+  reloadTrigger,
   showCreateGroupModal,
   setShowCreateGroupModal,
-  unreadMap,
   loadChats,
 }) {
   const [search, setSearch] = useState("");
@@ -26,6 +28,9 @@ export default function Sidebar({
   const [sendingRequest, setSendingRequest] = useState(false);
   const [error, setError] = useState("");
   const menuRef = useRef();
+
+  // 👉 State lưu danh sách cuộc trò chuyện với AI
+  const [aiSessions, setAiSessions] = useState([]);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -38,11 +43,53 @@ export default function Sidebar({
     return () => document.removeEventListener("click", handleClickOutside);
   }, []);
 
+  // 👉 Gọi API lấy danh sách AI Session mỗi khi chuyển sang tab "ai"
+  useEffect(() => {
+    if (tab === "ai") {
+      loadAiSessions();
+    }
+  }, [tab, reloadTrigger]);
+
+  const loadAiSessions = async () => {
+    const res = await getAiSessionsAPI();
+    if (res?.success) {
+      setAiSessions(res.data || []);
+    }
+  };
+
+  const handleDeleteAiSession = async (e, sessionId) => {
+    e.stopPropagation();
+    if (!window.confirm("Bạn có chắc chắn muốn xóa cuộc trò chuyện này?")) return;
+
+    const res = await deleteAiSessionAPI(sessionId);
+    if (res?.success) {
+      setAiSessions(prev => prev.filter(s => s._id !== sessionId));
+      if (selected?._id === sessionId) {
+        setSelected(null);
+      }
+    } else {
+      alert("Xóa thất bại!");
+    }
+  };
+
+  const handleNewAiChat = () => {
+    setSelected({
+      isAI: true,
+      name: "Cuộc trò chuyện mới",
+      _id: "new_ai_chat_" + Date.now(),
+      isNew: true
+    });
+  };
+
   const filteredContacts = Array.isArray(contacts)
     ? contacts.filter((chat) =>
-        (chat.name || "").toLowerCase().includes(search.toLowerCase())
-      )
+      (chat.name || "").toLowerCase().includes(search.toLowerCase())
+    )
     : [];
+
+  const filteredAiSessions = aiSessions.filter(session =>
+    (session.title || "").toLowerCase().includes(search.toLowerCase())
+  );
 
   const handleSearchByEmail = async () => {
     if (!searchEmail.trim()) {
@@ -110,41 +157,46 @@ export default function Sidebar({
             placeholder={
               tab === "chat"
                 ? "Tìm cuộc trò chuyện..."
-                : "Chọn chức năng bạn bè..."
+                : tab === "friends"
+                  ? "Chọn chức năng bạn bè..."
+                  : "Tìm kiếm lịch sử AI..."
             }
             style={{ border: "none", outline: "none", flex: 1 }}
           />
 
           <span style={{ color: "#ccc", padding: "0 8px" }}>|</span>
 
-          <div
-            onClick={() => setShowMenu(!showMenu)}
-            style={{
-              backgroundColor: "#0d6efd",
-              width: "28px",
-              height: "28px",
-              borderRadius: "50%",
-              display: "flex",
-              justifyContent: "center",
-              alignItems: "center",
-              cursor: "pointer",
-            }}
-          >
-            <FaUserPlus size={14} color="#fff" />
-          </div>
+          {tab === "ai" ? (
+            <div
+              onClick={handleNewAiChat}
+              style={{
+                backgroundColor: "#0284c7",
+                width: "28px", height: "28px", borderRadius: "50%",
+                display: "flex", justifyContent: "center", alignItems: "center", cursor: "pointer",
+              }}
+              title="Đoạn chat mới"
+            >
+              <FaPlus size={14} color="#fff" />
+            </div>
+          ) : (
+            <div
+              onClick={() => setShowMenu(!showMenu)}
+              style={{
+                backgroundColor: "#0d6efd",
+                width: "28px", height: "28px", borderRadius: "50%",
+                display: "flex", justifyContent: "center", alignItems: "center", cursor: "pointer",
+              }}
+            >
+              <FaUserPlus size={14} color="#fff" />
+            </div>
+          )}
 
-          {showMenu && (
+          {showMenu && tab !== "ai" && (
             <div
               style={{
-                position: "absolute",
-                top: "48px",
-                right: "0",
-                width: "180px",
-                background: "#fff",
-                borderRadius: "10px",
-                boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-                zIndex: 1000,
-                overflow: "hidden",
+                position: "absolute", top: "48px", right: "0", width: "180px",
+                background: "#fff", borderRadius: "10px", boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                zIndex: 1000, overflow: "hidden",
               }}
             >
               <div
@@ -176,11 +228,10 @@ export default function Sidebar({
         </div>
 
         <div className="mt-3">
+          {/* ======================= TAB CHAT ======================= */}
           {tab === "chat" &&
             (filteredContacts.length === 0 ? (
-              <div className="p-3 text-muted text-center">
-                Không có cuộc trò chuyện
-              </div>
+              <div className="p-3 text-muted text-center">Không có cuộc trò chuyện</div>
             ) : (
               filteredContacts.map((chat, index) => {
                 const isActive =
@@ -197,14 +248,8 @@ export default function Sidebar({
                   return msg.content || "Tin nhắn";
                 };
 
-                const lastMessage = getLastMessageText(
-                  chat.latestMessage || chat.lastMessage
-                );
-
-                const avatar =
-                  chat.avatar && String(chat.avatar).trim()
-                    ? chat.avatar
-                    : "https://i.pravatar.cc/50";
+                const lastMessage = getLastMessageText(chat.latestMessage || chat.lastMessage);
+                const avatar = chat.avatar && String(chat.avatar).trim() ? chat.avatar : "https://i.pravatar.cc/50";
 
                 return (
                   <div
@@ -217,18 +262,11 @@ export default function Sidebar({
                     }}
                     onClick={() => setSelected(chat)}
                   >
-                    <img
-                      src={avatar}
-                      alt=""
-                      className="rounded-circle me-2"
-                      width="40"
-                      height="40"
-                    />
+                    <img src={avatar} alt="" className="rounded-circle me-2" width="40" height="40" />
 
                     <div className="flex-grow-1">
                       <div className="fw-bold">
                         {chat.name || "User"}
-
                         {chat.type === "group" && (
                           <span
                             style={{
@@ -244,7 +282,6 @@ export default function Sidebar({
                           </span>
                         )}
                       </div>
-
                       <small className="text-muted">{lastMessage}</small>
 
                       {chat.type === "group" && (
@@ -274,49 +311,91 @@ export default function Sidebar({
               })
             ))}
 
+          {/* ======================= TAB FRIENDS ======================= */}
           {tab === "friends" && (
             <>
               <div
                 className="d-flex justify-content-between align-items-center p-2 border-bottom"
-                style={{
-                  cursor: "pointer",
-                  background: friendSection === "friends" ? "#f1f1f1" : "white",
-                  borderRadius: "10px",
-                }}
+                style={{ cursor: "pointer", background: friendSection === "friends" ? "#f1f1f1" : "white", borderRadius: "10px" }}
                 onClick={() => setFriendSection("friends")}
               >
                 <span className="fw-semibold">Danh sách bạn bè</span>
               </div>
-
               <div
                 className="d-flex justify-content-between align-items-center p-2 border-bottom mt-2"
-                style={{
-                  cursor: "pointer",
-                  background: friendSection === "requests" ? "#f1f1f1" : "white",
-                  borderRadius: "10px",
-                }}
+                style={{ cursor: "pointer", background: friendSection === "requests" ? "#f1f1f1" : "white", borderRadius: "10px" }}
                 onClick={() => setFriendSection("requests")}
               >
                 <span className="fw-semibold">Lời mời kết bạn</span>
-
-                {hasNewFriendRequest && (
-                  <span
-                    style={{
-                      width: 10,
-                      height: 10,
-                      background: "red",
-                      borderRadius: "50%",
-                      display: "inline-block",
-                    }}
-                  />
-                )}
+                {hasNewFriendRequest && <span style={{ width: 10, height: 10, background: "red", borderRadius: "50%", display: "inline-block" }} />}
               </div>
+            </>
+          )}
+
+          {/* ======================= TAB AI TRỢ LÝ ẢO ======================= */}
+          {tab === "ai" && (
+            <>
+              <div className="text-muted small fw-bold mb-2 ps-2">HÔM NAY</div>
+
+              <div
+                className="d-flex align-items-center p-2 border-bottom mb-2"
+                style={{
+                  cursor: "pointer",
+                  backgroundColor: selected?.isNew ? "#e0f2fe" : "white",
+                  borderRadius: "10px",
+                }}
+                onClick={handleNewAiChat}
+              >
+                <div className="rounded-circle me-3 d-flex justify-content-center align-items-center" style={{ width: "40px", height: "40px", backgroundColor: "#0284c7" }}>
+                  <FaPlus size={18} color="#fff" />
+                </div>
+                <div className="flex-grow-1 fw-bold text-dark">Đoạn chat mới</div>
+              </div>
+
+              {aiSessions.length === 0 ? (
+                <div className="p-3 text-muted text-center small">Chưa có lịch sử trò chuyện</div>
+              ) : (
+                filteredAiSessions.map((session) => (
+                  <div
+                    key={session._id}
+                    className="d-flex align-items-center p-2 border-bottom position-relative"
+                    style={{
+                      cursor: "pointer",
+                      backgroundColor: selected?._id === session._id && !selected?.isNew ? "#e0f2fe" : "white",
+                      borderRadius: "10px",
+                    }}
+                    onClick={() => setSelected({
+                      isAI: true,
+                      name: session.title,
+                      _id: session._id,
+                      isNew: false
+                    })}
+                  >
+                    <div className="rounded-circle me-3 d-flex justify-content-center align-items-center" style={{ width: "40px", height: "40px", backgroundColor: "#64748b" }}>
+                      <FaRobot size={18} color="#fff" />
+                    </div>
+                    <div className="flex-grow-1 pe-4">
+                      <div className="fw-bold text-dark" style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "180px" }}>
+                        {session.title || "Cuộc trò chuyện"}
+                      </div>
+                      <small className="text-muted">Trợ lý dịch vụ công</small>
+                    </div>
+
+                    <FaTrash
+                      className="position-absolute text-danger"
+                      style={{ right: "15px", cursor: "pointer", opacity: 0.7 }}
+                      onClick={(e) => handleDeleteAiSession(e, session._id)}
+                      title="Xóa đoạn chat"
+                    />
+                  </div>
+                ))
+              )}
             </>
           )}
         </div>
       </div>
 
-      {/* ADD FRIEND MODAL GIỮ NGUYÊN */}
+      {/* ======================= MODAL THÊM BẠN ======================= */}
       {showAddFriendModal && (
         <div
           style={{
@@ -371,7 +450,11 @@ export default function Sidebar({
                       : "https://i.pravatar.cc/80";
 
                   return (
-                    <div key={user._id} className="border rounded p-3 mb-3">
+                    <div
+                      key={user._id}
+                      className="border rounded p-3 mb-3"
+                      style={{ background: "#fff" }}
+                    >
                       <div className="d-flex align-items-start">
                         <img
                           src={avatar}
@@ -379,14 +462,29 @@ export default function Sidebar({
                           className="rounded-circle me-3"
                           width="60"
                           height="60"
+                          style={{ objectFit: "cover" }}
                         />
 
                         <div className="flex-grow-1">
-                          <div className="fw-bold">{user.fullName || "Chưa có tên"}</div>
-                          <div className="text-muted small">Username: {user.username}</div>
-                          <div className="text-muted small">Email: {user.email}</div>
-                          <div className="text-muted small">SĐT: {user.phone || "..."}</div>
-                          <div className="text-muted small mb-2">Bio: {user.bio || "..."}</div>
+                          <div className="fw-bold fs-6">
+                            {user.fullName || "Chưa có tên"}
+                          </div>
+
+                          <div className="text-muted small mb-1">
+                            Username: {user.username || "Chưa cập nhật"}
+                          </div>
+
+                          <div className="text-muted small mb-1">
+                            Email: {user.email || "Chưa cập nhật"}
+                          </div>
+
+                          <div className="text-muted small mb-1">
+                            SĐT: {user.phone || "Chưa cập nhật"}
+                          </div>
+
+                          <div className="text-muted small mb-2">
+                            Bio: {user.bio || "Chưa có bio"}
+                          </div>
 
                           {user.friendshipStatus === "none" && (
                             <button
@@ -394,13 +492,17 @@ export default function Sidebar({
                               onClick={() => handleSendFriendRequest(user._id)}
                               disabled={sendingRequest}
                             >
-                              {sendingRequest ? "Đang gửi..." : "Gửi lời mời kết bạn"}
+                              {sendingRequest
+                                ? "Đang gửi..."
+                                : "Gửi lời mời kết bạn"}
                             </button>
                           )}
 
                           {user.friendshipStatus === "pending" && (
                             <button className="btn btn-secondary btn-sm" disabled>
-                              {user.isSender ? "Đã gửi lời mời" : "Đang chờ phản hồi"}
+                              {user.isSender
+                                ? "Đã gửi lời mời"
+                                : "Đang chờ phản hồi"}
                             </button>
                           )}
 

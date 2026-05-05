@@ -6,32 +6,26 @@ const conversationSchema = new mongoose.Schema({
         enum: ['private', 'group'],
         required: true
     },
-
     name: {
         type: String,
         default: ""
     },
-
     avatar: {
         type: String,
         default: ""
     },
-
     description: {
         type: String,
         default: ""
     },
-
     createdBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
     },
-
     settings: {
         onlyAdminCanEdit: { type: Boolean, default: true },
         onlyAdminCanSend: { type: Boolean, default: false }
     },
-
     members: [
         {
             user: {
@@ -50,7 +44,6 @@ const conversationSchema = new mongoose.Schema({
             }
         }
     ],
-
     pinnedMessages: [
         {
             message: {
@@ -64,17 +57,14 @@ const conversationSchema = new mongoose.Schema({
             pinnedAt: Date
         }
     ],
-
     latestMessage: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Message'
     },
-
     isActive: {
         type: Boolean,
         default: true
     }
-
 }, {
     timestamps: true
 });

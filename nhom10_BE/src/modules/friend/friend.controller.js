@@ -3,6 +3,194 @@ const Friend = require("../../../models/friend");
 const User = require("../../../models/user");
 const NotificationService = require("../../services/notification.service");
 const chatService = require("../chat/chat.service");
+// <<<<<<< HEAD
+// const Conversation = require("../../../models/conversation");
+
+// class FriendController {
+//   async sendFriendRequest(req, res) {
+//     try {
+//       const { receiverId } = req.body;
+//       const senderId = req.user.id || req.user._id;
+
+//       if (!receiverId) {
+//         return res.status(400).json({
+//           success: false,
+//           message: "Thiếu receiverId",
+//         });
+//       }
+
+//       if (!mongoose.Types.ObjectId.isValid(receiverId)) {
+//         return res.status(400).json({
+//           success: false,
+//           message: "receiverId không hợp lệ",
+//         });
+//       }
+
+//       if (senderId.toString() === receiverId.toString()) {
+//         return res.status(400).json({
+//           success: false,
+//           message: "Không thể tự kết bạn với chính mình",
+//         });
+//       }
+
+//       const [sender, receiver] = await Promise.all([
+//         User.findById(senderId).select("-password"),
+//         User.findById(receiverId).select("-password"),
+//       ]);
+
+//       if (!receiver) {
+//         return res.status(404).json({
+//           success: false,
+//           message: "Không tìm thấy người dùng nhận lời mời",
+//         });
+//       }
+
+//       const existingFriendship = await Friend.findOne({
+//         $or: [
+//           { userId: senderId, friendId: receiverId },
+//           { userId: receiverId, friendId: senderId },
+//         ],
+//       });
+
+//       if (existingFriendship) {
+//         if (existingFriendship.status === "accepted") {
+//           return res.status(400).json({
+//             success: false,
+//             message: "Hai người đã là bạn bè",
+//           });
+//         }
+
+//         if (existingFriendship.status === "pending") {
+//           return res.status(400).json({
+//             success: false,
+//             message: "Yêu cầu kết bạn đã tồn tại",
+//           });
+//         }
+
+//         if (existingFriendship.status === "blocked") {
+//           return res.status(400).json({
+//             success: false,
+//             message: "Không thể gửi lời mời cho người dùng này",
+//           });
+//         }
+
+//         if (existingFriendship.status === "rejected") {
+//           existingFriendship.userId = senderId;
+//           existingFriendship.friendId = receiverId;
+//           existingFriendship.status = "pending";
+//           await existingFriendship.save();
+
+//           await NotificationService.createNotification({
+//             userId: receiverId,
+//             senderId: senderId,
+//             type: "friend_request",
+//             content: `${
+//               sender?.fullName || sender?.username || "Ai đó"
+//             } đã gửi lời mời kết bạn cho bạn`,
+//             data: {
+//               requestId: existingFriendship._id,
+//               senderId,
+//             },
+//           });
+
+//           const socketUtil = require("../../shared/utils/socket");
+//           const io = socketUtil.getIO();
+
+//           const populatedRequest = await Friend.findById(existingFriendship._id)
+//             .populate("userId", "-password");
+
+//           io.to(receiverId.toString()).emit("friend_request_received", {
+//             success: true,
+//             data: populatedRequest,
+//           });
+
+//           io.to(receiverId.toString()).emit("new_notification", {
+//             success: true,
+//             data: {
+//               type: "friend_request",
+//               requestId: existingFriendship._id,
+//               senderId,
+//             },
+//           });
+
+//           io.to(senderId.toString()).emit("friend_request_sent", {
+//             success: true,
+//             data: {
+//               requestId: existingFriendship._id,
+//               receiverId,
+//             },
+//           });
+
+//           return res.status(200).json({
+//             success: true,
+//             message: "Đã gửi lại lời mời kết bạn",
+//             data: existingFriendship,
+//           });
+//         }
+//       }
+
+//       const newRequest = await Friend.create({
+//         userId: senderId,
+//         friendId: receiverId,
+//         status: "pending",
+//       });
+
+//       await NotificationService.createNotification({
+//         userId: receiverId,
+//         senderId: senderId,
+//         type: "friend_request",
+//         content: `${
+//           sender?.fullName || sender?.username || "Ai đó"
+//         } đã gửi lời mời kết bạn cho bạn`,
+//         data: {
+//           requestId: newRequest._id,
+//           senderId,
+//         },
+//       });
+
+//       const socketUtil = require("../../shared/utils/socket");
+//       const io = socketUtil.getIO();
+
+//       const populatedRequest = await Friend.findById(newRequest._id)
+//         .populate("userId", "-password");
+
+//       io.to(receiverId.toString()).emit("friend_request_received", {
+//         success: true,
+//         data: populatedRequest,
+//       });
+
+//       io.to(receiverId.toString()).emit("new_notification", {
+//         success: true,
+//         data: {
+//           type: "friend_request",
+//           requestId: newRequest._id,
+//           senderId,
+//         },
+//       });
+
+//       io.to(senderId.toString()).emit("friend_request_sent", {
+//         success: true,
+//         data: {
+//           requestId: newRequest._id,
+//           receiverId,
+//         },
+//       });
+
+//       return res.status(201).json({
+//         success: true,
+//         message: "Đã gửi lời mời kết bạn",
+//         data: newRequest,
+//       });
+//     } catch (error) {
+//       console.error("Lỗi gửi kết bạn:", error);
+//       return res.status(500).json({
+//         success: false,
+//         message: "Lỗi server",
+//       });
+//     }
+//   }
+
+// =======
 
 class FriendController {
   async sendFriendRequest(req, res) {
@@ -191,6 +379,7 @@ class FriendController {
     });
   }
 }
+// >>>>>>> origin/dam
   async acceptFriendRequest(req, res) {
     try {
       const { requestId } = req.params;
@@ -236,7 +425,18 @@ class FriendController {
         currentUserId
       );
 
+// <<<<<<< HEAD
+//       const [receiver, sender, conversation] = await Promise.all([
+//         User.findById(currentUserId).select("-password"),
+//         User.findById(senderId).select("-password"),
+//         Conversation.findById(conversationId)
+//           .populate("members.user", "fullName avatar status")
+//           .populate("latestMessage")
+//           .lean(),
+//       ]);
+// =======
       const receiver = await User.findById(currentUserId).select("-password");
+// >>>>>>> origin/dam
 
       await NotificationService.createNotification({
         userId: senderId,
@@ -255,6 +455,10 @@ class FriendController {
       const socketUtil = require("../../shared/utils/socket");
       const io = socketUtil.getIO();
 
+// <<<<<<< HEAD
+//       // event cũ
+// =======
+// >>>>>>> origin/dam
       io.to(senderId.toString()).emit("friend_request_accepted", {
         success: true,
         data: {
@@ -274,12 +478,30 @@ class FriendController {
         },
       });
 
+// <<<<<<< HEAD
+//       // event mới: báo cho cả 2 bên có conversation mới
+//       io.to(senderId.toString()).emit("conversation_created", {
+//         success: true,
+//         data: conversation,
+//       });
+
+//       io.to(currentUserId.toString()).emit("conversation_created", {
+//         success: true,
+//         data: conversation,
+//       });
+
+// =======
+// >>>>>>> origin/dam
       return res.status(200).json({
         success: true,
         message: "Đã trở thành bạn bè",
         data: {
           request,
           conversationId,
+// <<<<<<< HEAD
+//           conversation,
+// =======
+// >>>>>>> origin/dam
         },
       });
     } catch (error) {

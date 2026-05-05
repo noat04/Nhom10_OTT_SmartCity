@@ -21,13 +21,13 @@ export default function ChatScreen() {
   const { user } = useAuth();
 
   const [keyword, setKeyword] = useState("");
-  const [conversations, setConversations] = useState([]);
+  const [conversations, setConversations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const myId = user?._id || user?.id;
 
-  const getPreviewText = (message) => {
+  const getPreviewText = (message: any) => {
     if (!message) return "Chưa có tin nhắn";
 
     if (message?.isDeleted || message?.deletedAt) {
@@ -50,12 +50,42 @@ export default function ChatScreen() {
     }
   };
 
+  const dedupeConversations = (list: any[]) => {
+    const map = new Map();
+
+    for (const item of list) {
+      const key = String(item?.conversationId || item?.id || "");
+      if (!key) continue;
+
+      const existed = map.get(key);
+
+      if (!existed) {
+        map.set(key, item);
+        continue;
+      }
+
+      const existedTime = new Date(existed?.updatedAt || 0).getTime();
+      const currentTime = new Date(item?.updatedAt || 0).getTime();
+
+      if (currentTime >= existedTime) {
+        map.set(key, item);
+      }
+    }
+
+    return Array.from(map.values()).sort(
+      (a: any, b: any) =>
+        new Date(b.updatedAt || 0).getTime() -
+        new Date(a.updatedAt || 0).getTime(),
+    );
+  };
+
   const normalizeConversation = useCallback(
-    (item) => {
+    (item: any) => {
       const isGroup = item?.type === "group";
 
       let displayName = "Cuộc trò chuyện";
       let displayAvatar = "https://i.pravatar.cc/150?img=12";
+      let partnerId = null; // 👉 BỔ SUNG BIẾN NÀY
 
       if (isGroup) {
         displayName = item?.name?.trim() || "Nhóm chat";
@@ -63,8 +93,11 @@ export default function ChatScreen() {
           item?.avatar?.trim() || "https://i.pravatar.cc/150?img=12";
       } else {
         const otherMember = item?.members?.find(
-          (m) => String(m?.user?._id || m?.user) !== String(myId),
+          (m: any) => String(m?.user?._id || m?.user) !== String(myId),
         );
+
+        // 👉 LẤY ID CỦA NGƯỜI KIA LƯU VÀO ĐÂY
+        partnerId = otherMember?.user?._id || otherMember?.user || null;
 
         displayName =
           otherMember?.user?.fullName ||
@@ -86,6 +119,7 @@ export default function ChatScreen() {
         type: item?.type,
         name: displayName,
         img: displayAvatar,
+        partnerId: partnerId, // 👉 TRẢ VỀ BIẾN NÀY
         msg: getPreviewText(latestMessage),
         updatedAt:
           latestMessage?.createdAt ||
@@ -110,12 +144,9 @@ export default function ChatScreen() {
         return;
       }
 
-      const normalized = (res?.data || [])
-        .map(normalizeConversation)
-        .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-
-      setConversations(normalized);
-    } catch (error) {
+      const normalized = (res?.data || []).map(normalizeConversation);
+      setConversations(dedupeConversations(normalized));
+    } catch (error: any) {
       console.log("❌ loadConversations:", error?.message);
       setConversations([]);
     } finally {
@@ -134,12 +165,9 @@ export default function ChatScreen() {
         return;
       }
 
-      const normalized = (res?.data || [])
-        .map(normalizeConversation)
-        .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-
-      setConversations(normalized);
-    } catch (error) {
+      const normalized = (res?.data || []).map(normalizeConversation);
+      setConversations(dedupeConversations(normalized));
+    } catch (error: any) {
       console.log("❌ refresh conversations:", error?.message);
     } finally {
       setRefreshing(false);
@@ -154,7 +182,7 @@ export default function ChatScreen() {
   useEffect(() => {
     if (!myId) return;
 
-    let retryTimer;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
     const bindRealtime = () => {
       const socket = getSocket();
@@ -164,57 +192,74 @@ export default function ChatScreen() {
         return;
       }
 
-      const handleConversationCreated = (payload) => {
+      const handleConversationCreated = (payload: any) => {
         const conversation = payload?.data || payload;
         if (!conversation?._id) return;
 
         const normalized = normalizeConversation(conversation);
 
         setConversations((prev) => {
-          const exists = prev.some(
-            (item) =>
-              String(item.conversationId) === String(normalized.conversationId),
-          );
-
-          if (exists) return prev;
-
-          return [normalized, ...prev];
+          return dedupeConversations([normalized, ...prev]);
         });
       };
 
-      const handleNewMessageGlobal = (message) => {
+      const handleNewMessageGlobal = (message: any) => {
         if (!message?.conversationId) return;
 
         const incomingConversationId = String(
           message?.conversationId?._id || message?.conversationId,
         );
 
+        const sender =
+          typeof message?.senderId === "object" ? message.senderId : null;
+
         setConversations((prev) => {
           const existingIndex = prev.findIndex(
-            (item) => String(item.conversationId) === incomingConversationId,
+            (item: any) =>
+              String(item.conversationId) === incomingConversationId,
           );
 
-          if (existingIndex === -1) {
-            // chỉ giữ cho case tin nhắn tới từ room chưa từng có trong state
-            return prev;
+          if (existingIndex !== -1) {
+            const updatedItem = {
+              ...prev[existingIndex],
+              msg: getPreviewText(message),
+              latestMessage: message,
+              updatedAt: message?.createdAt || new Date().toISOString(),
+            };
+
+            const newList = [...prev];
+            newList.splice(existingIndex, 1);
+            newList.unshift(updatedItem);
+
+            return dedupeConversations(newList);
           }
 
-          const updatedItem = {
-            ...prev[existingIndex],
+          const fallbackConversation = {
+            id: incomingConversationId,
+            conversationId: incomingConversationId,
+            type: message?.conversationType || "direct",
+            name:
+              message?.conversationName ||
+              sender?.fullName ||
+              sender?.name ||
+              sender?.username ||
+              "Cuộc trò chuyện",
+            img:
+              message?.conversationAvatar ||
+              sender?.avatar ||
+              sender?.profilePicture ||
+              "https://i.pravatar.cc/150?img=12",
             msg: getPreviewText(message),
-            latestMessage: message,
             updatedAt: message?.createdAt || new Date().toISOString(),
+            latestMessage: message,
+            raw: null,
           };
 
-          const newList = [...prev];
-          newList.splice(existingIndex, 1);
-          newList.unshift(updatedItem);
-
-          return newList;
+          return dedupeConversations([fallbackConversation, ...prev]);
         });
       };
 
-      const handleMessageEdited = (message) => {
+      const handleMessageEdited = (message: any) => {
         if (!message?.conversationId) return;
 
         const editedConversationId = String(
@@ -222,19 +267,22 @@ export default function ChatScreen() {
         );
 
         setConversations((prev) =>
-          prev.map((item) =>
-            String(item.conversationId) === editedConversationId
-              ? {
-                ...item,
-                msg: getPreviewText(message),
-                latestMessage: message,
-              }
-              : item,
+          dedupeConversations(
+            prev.map((item: any) =>
+              String(item.conversationId) === editedConversationId
+                ? {
+                  ...item,
+                  msg: getPreviewText(message),
+                  latestMessage: message,
+                  updatedAt: item?.updatedAt || message?.createdAt,
+                }
+                : item,
+            ),
           ),
         );
       };
 
-      const handleMessageDeleted = (message) => {
+      const handleMessageDeleted = (message: any) => {
         if (!message?.conversationId) return;
 
         const deletedConversationId = String(
@@ -242,14 +290,17 @@ export default function ChatScreen() {
         );
 
         setConversations((prev) =>
-          prev.map((item) =>
-            String(item.conversationId) === deletedConversationId
-              ? {
-                ...item,
-                msg: "Tin nhắn đã bị xóa",
-                latestMessage: message,
-              }
-              : item,
+          dedupeConversations(
+            prev.map((item: any) =>
+              String(item.conversationId) === deletedConversationId
+                ? {
+                  ...item,
+                  msg: "Tin nhắn đã bị xóa",
+                  latestMessage: message,
+                  updatedAt: item?.updatedAt || message?.createdAt,
+                }
+                : item,
+            ),
           ),
         );
       };
@@ -268,7 +319,7 @@ export default function ChatScreen() {
     bindRealtime();
 
     return () => {
-      clearTimeout(retryTimer);
+      if (retryTimer) clearTimeout(retryTimer);
       const socket = getSocket();
       socket?.off("conversation_created");
       socket?.off("newMessage_global");
@@ -281,7 +332,7 @@ export default function ChatScreen() {
     const q = keyword.trim().toLowerCase();
     if (!q) return conversations;
 
-    return conversations.filter((c) => {
+    return conversations.filter((c: any) => {
       return (
         c.name.toLowerCase().includes(q) || c.msg.toLowerCase().includes(q)
       );
@@ -292,7 +343,7 @@ export default function ChatScreen() {
     router.push("/(tabs)/contacts");
   };
 
-  const renderItem = ({ item }) => (
+  const renderItem = ({ item }: any) => (
     <TouchableOpacity
       onPress={() =>
         router.push({
@@ -303,6 +354,7 @@ export default function ChatScreen() {
             name: item.name,
             avatar: item.img,
             type: item.type,
+            partnerId: item.partnerId, // Truyền userId của người kia để tiện cho việc gọi video, nếu là nhóm thì truyền conversationId cũng được vì bên CallScreen sẽ không cần lấy thông tin người kia nữa
           },
         })
       }
@@ -341,7 +393,7 @@ export default function ChatScreen() {
 
       <FlatList
         data={filtered}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item: any) => String(item.id)}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         renderItem={renderItem}
         refreshControl={

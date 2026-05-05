@@ -1,28 +1,34 @@
-const chatService = require('../chat/chat.service');
+const chatService = require("../chat/chat.service");
 // 1. XÓA Import Sequelize và Op. Thay bằng import model Friend trực tiếp
 const Friend = require('../../../models/friend');
 class ChatController {
-
     async initOneToOneChat(req, res) {
         try {
             const { partnerId } = req.body;
             const myId = req.user.id; // Mongoose mặc định vẫn hỗ trợ req.user.id (trỏ tới _id)
 
             if (!partnerId) {
-                return res.status(400).json({ success: false, message: "Thiếu partnerId" });
+                return res
+                    .status(400)
+                    .json({ success: false, message: "Thiếu partnerId" });
             }
 
             // 2. CHUYỂN ĐỔI TỪ Sequelize sang cú pháp Mongoose ($or)
             const isFriend = await Friend.findOne({
-                status: 'accepted',
+                status: "accepted",
                 $or: [
                     { userId: myId, friendId: partnerId },
-                    { userId: partnerId, friendId: myId }
-                ]
+                    { userId: partnerId, friendId: myId },
+                ],
             });
 
             if (!isFriend) {
-                return res.status(403).json({ success: false, message: "Phải kết bạn trước khi tạo cuộc trò chuyện" });
+                return res
+                    .status(403)
+                    .json({
+                        success: false,
+                        message: "Phải kết bạn trước khi tạo cuộc trò chuyện",
+                    });
             }
 
             const conversationId = await chatService.getOrCreateOneToOneConversation(myId, partnerId);
@@ -33,6 +39,7 @@ class ChatController {
             console.error("Lỗi tạo chat:", error);
             res.status(500).json({ success: false, message: "Lỗi Server" });
         }
+
     }
 
     // API: Lấy lịch sử tin nhắn
@@ -57,21 +64,22 @@ class ChatController {
             console.error(error);
             res.status(500).json({ success: false, message: "Lỗi khi tải lịch sử tin nhắn" });
         }
+        // >>>>>>> origin/dam
     }
+    //   }
 
     async getConversations(req, res) {
         try {
             const currentUserId = req.user.id;
-            const conversations = await chatService.getUserConversations(currentUserId);
+            const conversations =
+                await chatService.getUserConversations(currentUserId);
 
             res.status(200).json({ success: true, data: conversations });
-
         } catch (error) {
             console.error(error);
             res.status(500).json({ success: false, message: "Lỗi server" });
         }
     }
-
     async sendMessageAPI(req, res) {
         try {
             // 👉 SỬA DÒNG NÀY: Bổ sung thêm fileUrl, fileName, fileSize
@@ -120,7 +128,7 @@ class ChatController {
         }
     }
 
-    //Sửa tin nhắn 
+    //Sửa tin nhắn
     async editMessage(req, res) {
         try {
             const { messageId, content } = req.body;
@@ -173,7 +181,7 @@ class ChatController {
         }
     }
 
-        //Tìm kiếm tin nhắn
+    //Tìm kiếm tin nhắn
     async searchMessages(req, res) {
         try {
             const { conversationId, keyword } = req.query;
@@ -215,14 +223,22 @@ class ChatController {
     }
 
     async getPinnedMessages(req, res) {
-        const { conversationId } = req.params;
+        try {
+            const conversationId = req.params.conversationId || req.body.conversationId;
 
-        const data = await chatService.getPinnedMessages(conversationId);
+            // Gọi xuống service để lấy data
+            const data = await chatService.getPinnedMessages(conversationId);
 
-        res.json({
-            success: true,
-            data: data.pinnedMessages
-        });
+            // 👉 ĐÃ SỬA DÒNG DƯỚI ĐÂY: Thêm data?.pinnedMessages || []
+            return res.status(200).json({
+                success: true,
+                data: data?.pinnedMessages || [] // Nếu data bị null thì trả về mảng rỗng, không bị lỗi nữa
+            });
+
+        } catch (error) {
+            console.error("Lỗi getPinnedMessages:", error);
+            return res.status(500).json({ success: false, message: "Lỗi máy chủ" });
+        }
     }
 
     //=============Chat Group=================
@@ -478,7 +494,6 @@ class ChatController {
             });
         }
     }
-
 }
 
 module.exports = new ChatController();

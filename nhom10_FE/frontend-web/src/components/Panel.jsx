@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { FaCommentDots, FaUsers, FaSignOutAlt } from "react-icons/fa";
+import { FaCommentDots, FaUsers, FaSignOutAlt, FaRobot } from "react-icons/fa";
 import { useAuth } from "../context/AuthContext";
 import { updateProfile, updateAvatar } from "../api/userApi";
 import { disconnectSocket } from "../socket/socket";
@@ -194,6 +194,7 @@ export default function Panel({
             alt="avatar"
           />
 
+          {/* TAB CHAT */}
           <button
             className={`btn text-white mb-3 ${tab === "chat" ? "fw-bold" : ""}`}
             onClick={() => setTab("chat")}
@@ -202,7 +203,8 @@ export default function Panel({
             <FaCommentDots size={20} />
           </button>
 
-          <div className="position-relative">
+          {/* TAB BẠN BÈ */}
+          <div className="position-relative mb-3">
             <button
               className={`btn text-white ${tab === "friends" ? "fw-bold" : ""}`}
               onClick={() => {
@@ -229,6 +231,15 @@ export default function Panel({
               />
             )}
           </div>
+
+          {/* TAB AI TRỢ LÝ ẢO */}
+          <button
+            className={`btn text-white mb-3 ${tab === "ai" ? "fw-bold" : ""}`}
+            onClick={() => setTab("ai")}
+            title="Trợ lý AI"
+          >
+            <FaRobot size={22} color={tab === "ai" ? "#ffc107" : "white"} />
+          </button>
         </div>
 
         <button className="btn text-white" onClick={logout} title="Đăng xuất">
@@ -284,10 +295,10 @@ export default function Panel({
               disabled
             />
 
-            <input placeholder="Full name"
-              className={`form-control mb-1 ${
-                errors.fullName ? "is-invalid" : ""
-              }`}
+            <input
+              placeholder="Full name"
+              className={`form-control mb-1 ${errors.fullName ? "is-invalid" : ""
+                }`}
               value={form.fullName}
               disabled={!isEditing}
               onChange={(e) => handleChange("fullName", e.target.value)}
@@ -302,10 +313,10 @@ export default function Panel({
               disabled
             />
 
-            <input placeholder="Phone"
-              className={`form-control mb-1 ${
-                errors.phone ? "is-invalid" : ""
-              }`}
+            <input
+              placeholder="Phone"
+              className={`form-control mb-1 ${errors.phone ? "is-invalid" : ""
+                }`}
               value={form.phone}
               disabled={!isEditing}
               onChange={(e) => handleChange("phone", e.target.value)}
@@ -314,7 +325,8 @@ export default function Panel({
               <div className="text-danger small mb-2">{errors.phone}</div>
             )}
 
-            <textarea placeholder="Bio"
+            <textarea
+              placeholder="Bio"
               className={`form-control mb-1 ${errors.bio ? "is-invalid" : ""}`}
               value={form.bio}
               disabled={!isEditing}
