@@ -262,11 +262,6 @@ export default function Sidebar({
                     }}
                     onClick={() => {
                       setSelected(chat);
-
-                      setUnreadMap((prev) => ({
-                        ...prev,
-                        [chat._id]: 0,
-                      }));
                     }}
                   >
                     <img src={avatar} alt="" className="rounded-circle me-2" width="40" height="40" />

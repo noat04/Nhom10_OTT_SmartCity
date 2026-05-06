@@ -156,7 +156,7 @@ module.exports = {
             socket.on("get_online_users", () => {
                 socket.emit("online_list", Array.from(onlineUsers.keys()));
             });
-            
+
             // 5. GỬI TIN NHẮN TRỰC TIẾP QUA SOCKET
             socket.on('send_message', async (data) => {
                 try {
@@ -169,6 +169,7 @@ module.exports = {
                     const conv = await Conversation.findById(data.conversationId);
 
                     conv.members.forEach(m => {
+                        if (String(m.user) === String(userId)) return;
                         io.to(m.user.toString()).emit("newMessage_global", {...savedMessage._doc,__forUser: m.user.toString()});
                     });
 

@@ -349,7 +349,11 @@ export default function ChatBox({
 
       if (String(msg.conversationId) !== String(currentConversationId)) return;
 
-      if (isAtBottomRef.current) emitSeen();
+      if (isAtBottomRef.current) {
+        setTimeout(() => {
+          emitSeen();
+        }, 600);
+      }
 
       let shouldScroll = false;
 
@@ -594,6 +598,10 @@ export default function ChatBox({
 
       setMessages(sorted);
 
+      setUnreadMap((prev) => ({
+        ...prev,
+        [conversationId]: 0,
+      }));
       // 🔥 SCROLL NGAY TẠI ĐÂY (CHUẨN NHẤT)
       requestAnimationFrame(() => {
         bottomRef.current?.scrollIntoView({ behavior: "auto" });
@@ -1015,16 +1023,16 @@ export default function ChatBox({
 
 
 
-    if (res.success && res.data) {
-      setMessages((prev) => {
-        const exists = prev.some((m) => m._id === res.data._id);
-        if (exists) return prev;
+    // if (res.success && res.data) {
+    //   setMessages((prev) => {
+    //     const exists = prev.some((m) => m._id === res.data._id);
+    //     if (exists) return prev;
 
-        return [...prev, res.data].sort(
-          (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
-        );
-      });
-    }
+    //     return [...prev, res.data].sort(
+    //       (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
+    //     );
+    //   });
+    // }
 
     setMessage("");
     setFile(null);
@@ -1053,7 +1061,10 @@ export default function ChatBox({
 
   // ================= HỖ TRỢ GỬI KHI NHẤN ENTER =================
   const handleKeyDown = (e) => {
-    if (e.key === "Enter") sendMessage();
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
   };
 
   // ================= DELETE =================

@@ -37,6 +37,8 @@ export default function ChatPage() {
 
   const navigate = useNavigate();
 
+  const processedUnreadRef = useRef(new Set());
+
   // 👉 BỔ SUNG: XỬ LÝ ĐỒNG BỘ GIAO DIỆN KHI CHUYỂN TAB
   useEffect(() => {
     if (tab === "ai") {
@@ -326,8 +328,22 @@ export default function ChatPage() {
   const openingChatRef = useRef(null);
 
   useEffect(() => {
+
     const handleNewMessageGlobal = (message) => {
-      if (!message?.conversationId) return;
+
+      
+      if (!message?._id || !message?.conversationId) return;
+
+      // ✅ CHẶN 1 TIN NHẮN BỊ XỬ LÝ 2 LẦN
+      if (processedUnreadRef.current.has(String(message._id))) {
+        return;
+      }
+
+      processedUnreadRef.current.add(String(message._id));
+
+      setTimeout(() => {
+        processedUnreadRef.current.delete(String(message._id));
+      }, 10000);
 
       const incomingConversationId = String(
         message?.conversationId?._id || message?.conversationId
@@ -347,8 +363,6 @@ export default function ChatPage() {
           ...oldItem,
           latestMessage: message,
           updatedAt: message?.createdAt || new Date().toISOString(),
-          name: oldItem?.name,
-          avatar: oldItem?.avatar,
         };
 
         const newList = [...prev];
@@ -359,24 +373,22 @@ export default function ChatPage() {
       });
 
       setUnreadMap((prev) => {
-        const currentSelectedId = selectedRef.current?._id || selectedRef.current?.conversationId;
+        const currentSelectedId =
+          selectedRef.current?._id || selectedRef.current?.conversationId;
 
         const senderId =
           typeof message?.senderId === "object"
             ? message?.senderId?._id || message?.senderId?.id
             : message?.senderId;
 
-        if (String(senderId) === String(currentUserId)) {
-          return prev;
-        }
+        // ❌ bỏ qua tin nhắn mình gửi
+        if (String(senderId) === String(currentUserId)) return prev;
 
-        if (String(currentSelectedId) === incomingConversationId) {
-          return prev;
-        }
+        // ❌ bỏ qua chat đang mở
+        if (String(currentSelectedId) === incomingConversationId) return prev;
 
-        if (String(openingChatRef.current) === incomingConversationId) {
-          return prev;
-        }
+        // ❌ bỏ qua chat đang click mở
+        if (String(openingChatRef.current) === incomingConversationId) return prev;
 
         return {
           ...prev,
