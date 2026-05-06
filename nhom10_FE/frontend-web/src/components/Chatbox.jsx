@@ -208,12 +208,14 @@ export default function ChatBox({
       }
     };
 
-    const handleSeen = ({ conversationId, userId }) => {
-      // chỉ xử lý đúng room
-      if (String(conversationId) !== String(selected?._id)) return;
+    const handleSeen = ({ conversationId, seenMessages }) => {
+      const currentConversationId = selected?.conversationId || selected?._id;
 
-      // chỉ khi người khác seen tin của mình
-      if (String(userId) === String(myId)) return;
+      if (String(conversationId) !== String(currentConversationId)) return;
+
+      if (!Array.isArray(seenMessages)) return;
+
+      const seenIds = new Set(seenMessages.map((m) => String(m._id)));
 
       setMessages((prev) =>
         prev.map((msg) => {
@@ -222,27 +224,18 @@ export default function ChatBox({
               ? msg.senderId._id
               : msg.senderId;
 
-          // <<<<<<< HEAD
-          // =======
-          //           // chỉ tin nhắn mình gửi mới được seen
-          // >>>>>>> origin/dam
-          if (String(senderId) === String(myId)) {
-            return { ...msg, status: "seen" };
+          // chỉ message của mình + nằm trong list backend xác nhận seen
+          if (String(senderId) === String(myId) && seenIds.has(String(msg._id))) {
+            return {
+              ...msg,
+              status: "seen",
+              seenBy: msg.seenBy || []
+            };
           }
 
           return msg;
         })
       );
-      // <<<<<<< HEAD
-      // =======
-
-      if (String(userId) !== String(myId)) return;
-
-      setUnreadMap(prev => ({
-        ...prev,
-        [conversationId]: 0
-      }));
-      // >>>>>>> origin/dam
     };
 
     const handleEdited = (msg) => {
