@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { getFriendsAPI } from "../api/friendAPI";
+// 👉 Nhớ import thêm getFriendRequestsAPI vào đây
+import { getFriendsAPI, sendFriendRequestAPI, getFriendRequestsAPI } from "../api/friendAPI";
 import {
   getGroupInfoAPI,
   addMembersAPI,
@@ -22,15 +23,23 @@ export default function GroupInfoModal({
   const [editName, setEditName] = useState("");
   const [editAvatar, setEditAvatar] = useState("");
 
+  const [selectedMember, setSelectedMember] = useState(null);
+
+  // Mảng chứa ID những người đã được mình gửi lời mời kết bạn
+  const [sentRequestIds, setSentRequestIds] = useState([]);
+
   const myId = localStorage.getItem("userId");
-  
+
   useEffect(() => {
     if (!show || !conversationId) return;
     loadGroupInfo();
     loadFriends();
+    loadFriendRequests(); // 👉 BƯỚC 1: Gọi hàm lấy danh sách lời mời ngay khi mở Modal
   }, [show, conversationId]);
 
   if (!show) return null;
+
+  // ================= CÁC HÀM LOAD DỮ LIỆU =================
 
   const loadGroupInfo = async () => {
     const res = await getGroupInfoAPI(conversationId);
@@ -48,9 +57,47 @@ export default function GroupInfoModal({
     }
   };
 
+  //Hàm xử lý lấy danh sách đã gửi kết bạn từ API
+  const loadFriendRequests = async () => {
+    try {
+      const res = await getFriendRequestsAPI();
+      console.log("📥 Dữ liệu API Lời mời kết bạn trả về:", res);
+
+      let sentIds = [];
+
+      if (res?.data?.sent && Array.isArray(res.data.sent)) {
+
+        // 👉 CHỈ LẤY NHỮNG LỜI MỜI ĐANG Ở TRẠNG THÁI CHỜ XÁC NHẬN (pending)
+        const pendingRequests = res.data.sent.filter(req => req.status === 'pending');
+
+        sentIds = pendingRequests.map(req => {
+          const receiver = req.friendId || req.receiverId || req.receiver || req.toUser;
+          return String(typeof receiver === 'object' && receiver !== null ? (receiver._id || receiver.id) : receiver);
+        });
+      }
+
+      console.log("🎯 Các ID đang chờ xác nhận (pending):", sentIds);
+
+      // Cập nhật vào state
+      setSentRequestIds(sentIds);
+
+    } catch (error) {
+      console.log("❌ Lỗi khi load danh sách kết bạn", error);
+    }
+  };
+
+  // ================= CÁC HÀM XỬ LÝ LOGIC =================
+
   const isAdmin = groupInfo?.members?.some(
     (m) => String(m.user?._id) === String(myId) && m.role === "admin"
   );
+
+  const checkIsFriend = (userId) => {
+    return friends.some((f) => {
+      const fUser = f.friendInfo || f.user || f;
+      return String(fUser._id) === String(userId);
+    });
+  };
 
   const toggleAddMember = (id) => {
     setSelectedAdd((prev) =>
@@ -128,184 +175,301 @@ export default function GroupInfoModal({
     }
   };
 
+  const handleAddFriend = async (targetUserId) => {
+    try {
+      const rawId = typeof targetUserId === 'object' ? (targetUserId._id || targetUserId.id) : targetUserId;
+      const safeId = String(rawId);
+
+      const res = await sendFriendRequestAPI(safeId);
+
+      if (res?.success) {
+        setSentRequestIds((prev) => [...prev, safeId]);
+      } else {
+        if (res?.message?.toLowerCase().includes("đã gửi")) {
+          setSentRequestIds((prev) => [...prev, safeId]);
+        } else {
+          alert(res?.message || "Lỗi khi gửi kết bạn");
+        }
+      }
+    } catch (error) {
+      console.log(error);
+    }
+  };
+
   const friendCandidates = friends.filter((f) => {
     const user = f.friendInfo || f.user || f;
-
     return !groupInfo?.members?.some(
       (m) => String(m.user?._id) === String(user._id)
     );
   });
 
+  // ================= GIAO DIỆN (UI) =================
+
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.45)",
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        zIndex: 99999,
-      }}
-    >
+    <>
       <div
-        className="bg-white rounded shadow p-4"
         style={{
-          width: "620px",
-          maxWidth: "95%",
-          maxHeight: "90vh",
-          overflowY: "auto",
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0,0,0,0.45)",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          zIndex: 99999,
         }}
       >
-        <h3 className="text-center fw-bold mb-3">Thông tin nhóm</h3>
+        <div
+          className="bg-white rounded shadow p-4"
+          style={{
+            width: "620px",
+            maxWidth: "95%",
+            maxHeight: "90vh",
+            overflowY: "auto",
+          }}
+        >
+          <h3 className="text-center fw-bold mb-3">Thông tin nhóm</h3>
 
-        {/* avatar + name */}
-        <div className="text-center mb-3">
-          <img
-            src={editAvatar || "https://i.pravatar.cc/80"}
-            alt=""
-            width="80"
-            height="80"
-            className="rounded-circle"
-          />
-        </div>
-
-        {isAdmin ? (
-          <>
-            <input
-              className="form-control mb-2"
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              placeholder="Tên nhóm"
+          <div className="text-center mb-3">
+            <img
+              src={editAvatar || groupInfo?.avatar || "https://i.pravatar.cc/80"}
+              alt=""
+              width="80"
+              height="80"
+              className="rounded-circle"
+              style={{ objectFit: "cover" }}
             />
+          </div>
 
-            <input
-              className="form-control mb-2"
-              value={editAvatar}
-              onChange={(e) => setEditAvatar(e.target.value)}
-              placeholder="Avatar nhóm URL"
-            />
-
-            <button className="btn btn-primary w-100 mb-3" onClick={handleUpdateGroup}>
-              Lưu thông tin nhóm
-            </button>
-          </>
-        ) : (
-          <div className="text-center fw-bold fs-5 mb-3">{groupInfo?.name}</div>
-        )}
-
-        <hr />
-
-        {/* members */}
-        <div className="fw-bold mb-2">
-          Thành viên nhóm ({groupInfo?.members?.length || 0})
-        </div>
-
-        {groupInfo?.members?.map((m) => (
-          <div
-            key={m.user?._id}
-            className="border rounded p-2 mb-2 d-flex justify-content-between align-items-center"
-          >
-            <div className="d-flex align-items-center">
-              <img
-                src={m.user?.avatar || "https://i.pravatar.cc/50"}
-                alt=""
-                width="42"
-                height="42"
-                className="rounded-circle me-2"
+          {isAdmin ? (
+            <>
+              <input
+                className="form-control mb-2"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder="Tên nhóm"
               />
-              <div>
-                <div className="fw-semibold">
-                  {m.user?.fullName}{" "}
-                  {m.role === "admin" && (
-                    <span className="badge bg-warning text-dark">Admin</span>
+
+              <input
+                className="form-control mb-2"
+                value={editAvatar}
+                onChange={(e) => setEditAvatar(e.target.value)}
+                placeholder="Avatar nhóm URL"
+              />
+
+              <button className="btn btn-primary w-100 mb-3" onClick={handleUpdateGroup}>
+                Lưu thông tin nhóm
+              </button>
+            </>
+          ) : (
+            <div className="text-center fw-bold fs-5 mb-3">{groupInfo?.name}</div>
+          )}
+
+          <hr />
+
+          <div className="fw-bold mb-2">
+            Thành viên nhóm ({groupInfo?.members?.length || 0})
+          </div>
+
+          {groupInfo?.members?.map((m) => {
+            const isMe = String(m.user?._id) === String(myId);
+            const isFriend = checkIsFriend(m.user?._id);
+            // 👉 BƯỚC 3: Dùng mảng sentRequestIds (đã lấy từ API) để quyết định UI
+            const isSentRequest = sentRequestIds.includes(String(m.user?._id));
+
+            return (
+              <div
+                key={m.user?._id}
+                className="border rounded p-2 mb-2 d-flex justify-content-between align-items-center"
+              >
+                <div
+                  className="d-flex align-items-center"
+                  style={{ cursor: "pointer" }}
+                  onClick={() => setSelectedMember(m.user)}
+                  title="Xem thông tin"
+                >
+                  <img
+                    src={m.user?.avatar || "https://i.pravatar.cc/50"}
+                    alt=""
+                    width="42"
+                    height="42"
+                    className="rounded-circle me-2"
+                    style={{ objectFit: "cover" }}
+                  />
+                  <div>
+                    <div className="fw-semibold">
+                      {m.user?.fullName} {isMe && "(Bạn)"}
+                      {m.role === "admin" && (
+                        <span className="badge bg-warning text-dark ms-2">Admin</span>
+                      )}
+                    </div>
+                    <small className="text-muted">{m.user?.email}</small>
+                  </div>
+                </div>
+
+                <div className="d-flex gap-2">
+                  {!isMe && !isFriend && (
+                    isSentRequest ? (
+                      <button className="btn btn-sm btn-secondary" disabled>
+                        Đã gửi lời mời
+                      </button>
+                    ) : (
+                      <button
+                        className="btn btn-sm btn-outline-primary"
+                        onClick={() => handleAddFriend(m.user._id)}
+                      >
+                        Kết bạn
+                      </button>
+                    )
+                  )}
+
+                  {isAdmin && !isMe && (
+                    <>
+                      <button
+                        className="btn btn-sm btn-warning"
+                        onClick={() => handlePromoteAdmin(m.user._id)}
+                      >
+                        Chuyển admin
+                      </button>
+
+                      <button
+                        className="btn btn-sm btn-danger"
+                        onClick={() => handleRemoveMember(m.user._id)}
+                      >
+                        Xóa
+                      </button>
+                    </>
                   )}
                 </div>
-                <small className="text-muted">{m.user?.email}</small>
               </div>
-            </div>
+            );
+          })}
 
-            {isAdmin && String(m.user?._id) !== String(myId) && (
-              <div className="d-flex gap-2">
-                <button
-                  className="btn btn-sm btn-warning"
-                  onClick={() => handlePromoteAdmin(m.user._id)}
-                >
-                  Chuyển admin
-                </button>
+          {isAdmin && (
+            <>
+              <hr />
+              <div className="fw-bold mb-2">Thêm thành viên</div>
 
-                <button
-                  className="btn btn-sm btn-danger"
-                  onClick={() => handleRemoveMember(m.user._id)}
-                >
-                  Xóa
-                </button>
-              </div>
-            )}
-          </div>
-        ))}
+              <div style={{ maxHeight: "200px", overflowY: "auto" }}>
+                {friendCandidates.map((f) => {
+                  const user = f.friendInfo || f.user || f;
+                  const checked = selectedAdd.includes(user._id);
 
-        {/* add member */}
-        {isAdmin && (
-          <>
-            <hr />
-            <div className="fw-bold mb-2">Thêm thành viên</div>
-
-            <div style={{ maxHeight: "200px", overflowY: "auto" }}>
-              {friendCandidates.map((f) => {
-                const user = f.friendInfo || f.user || f;
-                const checked = selectedAdd.includes(user._id);
-
-                return (
-                  <div
-                    key={user._id}
-                    className="border rounded p-2 mb-2 d-flex align-items-center"
-                    style={{
-                      cursor: "pointer",
-                      background: checked ? "#e7f1ff" : "#fff",
-                    }}
-                    onClick={() => toggleAddMember(user._id)}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      readOnly
-                      className="me-2"
-                    />
-                    <img
-                      src={user.avatar || "https://i.pravatar.cc/40"}
-                      alt=""
-                      width="36"
-                      height="36"
-                      className="rounded-circle me-2"
-                    />
-                    <div>
-                      <div>{user.fullName}</div>
-                      <small className="text-muted">{user.email}</small>
+                  return (
+                    <div
+                      key={user._id}
+                      className="border rounded p-2 mb-2 d-flex align-items-center"
+                      style={{
+                        cursor: "pointer",
+                        background: checked ? "#e7f1ff" : "#fff",
+                      }}
+                      onClick={() => toggleAddMember(user._id)}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        readOnly
+                        className="me-2"
+                      />
+                      <img
+                        src={user.avatar || "https://i.pravatar.cc/40"}
+                        alt=""
+                        width="36"
+                        height="36"
+                        className="rounded-circle me-2"
+                        style={{ objectFit: "cover" }}
+                      />
+                      <div>
+                        <div>{user.fullName}</div>
+                        <small className="text-muted">{user.email}</small>
+                      </div>
                     </div>
+                  );
+                })}
+                {friendCandidates.length === 0 && (
+                  <div className="text-muted text-center py-2">
+                    Không có bạn bè nào phù hợp để thêm.
                   </div>
-                );
-              })}
-            </div>
+                )}
+              </div>
 
-            <button className="btn btn-success w-100 mt-2" onClick={handleAddMembers}>
-              Thêm vào nhóm
+              <button className="btn btn-success w-100 mt-2" onClick={handleAddMembers}>
+                Thêm vào nhóm
+              </button>
+            </>
+          )}
+
+          <hr />
+
+          <div className="d-flex justify-content-between">
+            <button className="btn btn-danger" onClick={handleLeaveGroup}>
+              Rời nhóm
             </button>
-          </>
-        )}
 
-        <hr />
-
-        <div className="d-flex justify-content-between">
-          <button className="btn btn-danger" onClick={handleLeaveGroup}>
-            Rời nhóm
-          </button>
-
-          <button className="btn btn-secondary" onClick={onClose}>
-            Đóng
-          </button>
+            <button className="btn btn-secondary" onClick={onClose}>
+              Đóng
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+
+      {/* 👉 MODAL HIỂN THỊ THÔNG TIN CHI TIẾT THÀNH VIÊN */}
+      {selectedMember && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.6)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            zIndex: 100000,
+          }}
+          onClick={() => setSelectedMember(null)}
+        >
+          <div
+            className="bg-white rounded shadow p-4 text-center"
+            style={{ width: "350px", maxWidth: "90%" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={selectedMember.avatar || "https://i.pravatar.cc/150"}
+              alt=""
+              width="100"
+              height="100"
+              className="rounded-circle mb-3"
+              style={{ objectFit: "cover", border: "2px solid #ddd" }}
+            />
+            <h4 className="fw-bold mb-1">{selectedMember.fullName}</h4>
+            <p className="text-muted mb-2">{selectedMember.email}</p>
+            <span className="badge bg-success mb-4">
+              {selectedMember.status || "Đang hoạt động"}
+            </span>
+
+            <div className="d-flex justify-content-center gap-2 mt-2">
+              {!checkIsFriend(selectedMember._id) && String(selectedMember._id) !== String(myId) && (
+                sentRequestIds.includes(String(selectedMember._id)) ? (
+                  <button className="btn btn-secondary px-4" disabled>
+                    Đã gửi lời mời
+                  </button>
+                ) : (
+                  <button
+                    className="btn btn-primary px-4"
+                    onClick={() => handleAddFriend(selectedMember._id)}
+                  >
+                    Kết bạn
+                  </button>
+                )
+              )}
+              <button
+                className="btn btn-outline-secondary px-4"
+                onClick={() => setSelectedMember(null)}
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

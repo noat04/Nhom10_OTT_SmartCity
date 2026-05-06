@@ -68,6 +68,7 @@ const RootNavigator = () => {
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="chat/[id]" />
           <Stack.Screen name="group/[id]" />
+          <Stack.Screen name="group/settings/[id]" />
           <Stack.Screen
             name="call/CallScreen"
             options={{ presentation: "fullScreenModal", animation: "fade" }}

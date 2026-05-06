@@ -1,5 +1,19 @@
 import api from "../service/api.service";
 
+export const getConversationsAPI = async () => {
+  try {
+    const res = await api.get("/chat/conversations");
+    return res.data;
+  } catch (err) {
+    console.log("❌ getConversationsAPI:", err?.response?.data || err.message);
+    return {
+      success: false,
+      status: err?.response?.status,
+      message: err?.response?.data?.message || "Không thể lấy danh sách chat",
+      data: [],
+    };
+  }
+};
 // ==============================
 // 📩 LẤY LỊCH SỬ TIN NHẮN
 // ==============================
@@ -167,10 +181,6 @@ export const pinMessageAPI = (conversationId, messageId) => {
     messageId,
   });
 };
-// <<<<<<< HEAD
-// export const getPinnedMessagesAPI = (conversationId) => {
-//   return api.get(`/chat/message/pinned/${conversationId}`);
-// =======
 
 export const getPinnedMessagesAPI = async (conversationId) => {
   try {
@@ -181,6 +191,17 @@ export const getPinnedMessagesAPI = async (conversationId) => {
     return { success: false, data: [] };
   }
 };
+
+export const forwardMessageAPI = async (payload) => {
+  try {
+    const res = await api.post("/chat/message/forward", payload);
+    return res.data;
+  } catch (err) {
+    console.log("❌ forwardMessageAPI:", err?.response?.data || err.message);
+    return { success: false, message: err?.response?.data?.message || "Lỗi chuyển tiếp" };
+  }
+};
+
 
 // ==============================
 // GROUP CHAT APIs

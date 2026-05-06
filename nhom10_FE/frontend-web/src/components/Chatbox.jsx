@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import EmojiPicker from "emoji-picker-react";
 import VideoCall from './VideoCall';
-import { FaVideo, FaPhoneAlt, FaReply, FaThumbtack, FaPen, FaTrash, FaHeart } from "react-icons/fa";
+// 👉 Thêm FaShare vào import icons
+import { FaVideo, FaPhoneAlt, FaReply, FaThumbtack, FaPen, FaTrash, FaHeart, FaShare } from "react-icons/fa";
 import {
   getMessages,
   sendMessageAPI,
@@ -11,7 +12,8 @@ import {
   reactMessageAPI,
   searchMessagesAPI,
   pinMessageAPI,
-  getPinnedMessagesAPI
+  getPinnedMessagesAPI,
+  forwardMessageAPI, getConversationsAPI
 } from "../api/chatApi";
 import {
   getFriendsAPI,
@@ -84,6 +86,12 @@ export default function ChatBox({
   const isFirstLoad = useRef(true);
   const [onlineUsers, setOnlineUsers] = useState({});
 
+  //Chuyển tiếp 
+  const [showForwardModal, setShowForwardModal] = useState(false);
+  const [messageToForward, setMessageToForward] = useState(null);
+  const [conversationsList, setConversationsList] = useState([]);
+  const [selectedForwardTargets, setSelectedForwardTargets] = useState([]);
+  const [isForwarding, setIsForwarding] = useState(false);
 
   const emojiMap = {
     like: "👍",
@@ -113,43 +121,36 @@ export default function ChatBox({
       return;
     }
 
-    // Hàm xử lý khi có cuộc gọi đến
     const handleIncomingCall = (data) => {
       console.log("📞 Incoming call:", data);
 
       const callerId = data?.caller?._id || data?.callerId;
 
-      // 🚫 1. nếu mình là người gọi → bỏ qua
       if (String(callerId) === String(myId)) {
         console.log("🚫 Ignore own call event");
         return;
       }
 
-      // 🚫 2. nếu đang trong call → không override
       if (isCallUIOpen) {
         console.log("⚠️ Already in call → ignore incoming");
         return;
       }
 
-      // 🚫 3. nếu call trùng → bỏ qua
       if (incomingCallDataGlobal?.callId === data.callId) {
         console.log("⚠️ Duplicate call");
         return;
       }
 
-      // ✅ hợp lệ → nhận call
       setIncomingCallDataGlobal(data);
       setIsCallUIOpen(true);
     };
-    // Hàm xử lý khi cuộc gọi kết thúc
+
     const handleCallEnded = (data) => {
       console.log("📴 call ended (ChatBox):", data);
-      setIsCallUIOpen(false); // force đóng UI
-
-      setIncomingCallDataGlobal(null); // 🔥 thêm dòng này
+      setIsCallUIOpen(false);
+      setIncomingCallDataGlobal(null);
     };
 
-    // Đăng ký sự kiện
     socket.on("call_incoming", handleIncomingCall);
     socket.on("call_ended", handleCallEnded);
 
@@ -157,7 +158,7 @@ export default function ChatBox({
       socket.off("call_incoming", handleIncomingCall);
       socket.off("call_ended", handleCallEnded);
     };
-  }, [isCallUIOpen, incomingCallDataGlobal]); // [] Chạy 1 lần duy nhất, không bị reset khi đổi chat
+  }, [isCallUIOpen, incomingCallDataGlobal]);
 
   // ====================================================
   // 2. LOCAL SOCKET: LẮNG NGHE TIN NHẮN (Khi đổi Chat)
@@ -173,21 +174,17 @@ export default function ChatBox({
     socket.emit("joinConversation", roomId);
 
     const handleNewMessage = (msg) => {
-      // 👉 THÊM DÒNG NÀY ĐỂ DEBUG:
       console.log("🔥 SOCKET VỪA BẮT ĐƯỢC TIN NHẮN MỚI:", msg);
       const currentConversationId = selected?.conversationId || selected?._id;
 
-      // ❗ nếu KHÔNG phải chat đang mở
       if (String(msg.conversationId) !== String(currentConversationId)) {
         return;
       }
 
-      // 🔥 AUTO SEEN nếu đang ở dưới cùng
       if (isAtBottomRef.current) {
         emitSeen();
       }
 
-      // 👉 nếu đang mở chat thì xử lý như cũ
       let shouldScroll = false;
 
       setMessages((prev) => {
@@ -209,10 +206,7 @@ export default function ChatBox({
     };
 
     const handleSeen = ({ conversationId, userId }) => {
-      // chỉ xử lý đúng room
       if (String(conversationId) !== String(selected?._id)) return;
-
-      // chỉ khi người khác seen tin của mình
       if (String(userId) === String(myId)) return;
 
       setMessages((prev) =>
@@ -222,10 +216,6 @@ export default function ChatBox({
               ? msg.senderId._id
               : msg.senderId;
 
-          // <<<<<<< HEAD
-          // =======
-          //           // chỉ tin nhắn mình gửi mới được seen
-          // >>>>>>> origin/dam
           if (String(senderId) === String(myId)) {
             return { ...msg, status: "seen" };
           }
@@ -233,8 +223,6 @@ export default function ChatBox({
           return msg;
         })
       );
-      // <<<<<<< HEAD
-      // =======
 
       if (String(userId) !== String(myId)) return;
 
@@ -242,13 +230,11 @@ export default function ChatBox({
         ...prev,
         [conversationId]: 0
       }));
-      // >>>>>>> origin/dam
     };
 
     const handleEdited = (msg) => {
       setMessages((prev) =>
         prev.map((m) => {
-          // update message chính
           if (m._id === msg._id) {
             return {
               ...m,
@@ -256,12 +242,11 @@ export default function ChatBox({
             };
           }
 
-          // 🔥 FIX CHUẨN: giữ lại cấu trúc replyTo
           if (m.replyTo?._id === msg._id) {
             return {
               ...m,
               replyTo: {
-                ...m.replyTo,   // giữ senderId, fullName
+                ...m.replyTo,
                 content: msg.content,
                 isEdited: msg.isEdited,
               },
@@ -279,7 +264,6 @@ export default function ChatBox({
       );
     };
 
-
     socket.on("newMessage", handleNewMessage);
     socket.on("message_seen", handleSeen);
     socket.on("message_edited", handleEdited);
@@ -293,11 +277,6 @@ export default function ChatBox({
       );
     });
 
-    // <<<<<<< HEAD
-    //     socket.on("message_pinned", (data) => {
-    //       setPinnedMessages(data.pinnedMessages || []);
-    //     });
-    // =======
     const handlePinnedRealtime = (data) => {
       const pins = normalizePinnedMessages(data?.pinnedMessages || []);
 
@@ -307,39 +286,29 @@ export default function ChatBox({
     };
 
     socket.on("message_pinned", handlePinnedRealtime);
-    // >>>>>>> origin/dam
 
     return () => {
-      // socket.emit(
-      //   "leaveConversation",
-      //   selected?.conversationId || selected?._id
-      // );
       socket.off("newMessage", handleNewMessage);
       socket.off("message_seen", handleSeen);
       socket.off("message_edited", handleEdited);
       socket.off("message_deleted", handleDeleted);
-      // <<<<<<< HEAD
-      //       socket.off("message_pinned");
-      // =======
       socket.off("message_pinned", handlePinnedRealtime);
-      // >>>>>>> origin/dam
     };
   }, [selected, tab]);
-
 
   // ================= SEARCH (🔥 MOVE HERE) =================
   useEffect(() => {
     if (!selected?._id) return;
 
     if (!search.trim()) {
-      setSearchResults([]);
+      searchResults.length > 0 && setSearchResults([]);
       return;
     }
 
     const delay = setTimeout(async () => {
       const res = await searchMessagesAPI(selected._id, search);
 
-      if (res.data.success) {
+      if (res.data?.success) {
         setSearchResults(res.data.data || []);
       }
     }, 300);
@@ -367,7 +336,6 @@ export default function ChatBox({
   useEffect(() => {
     if (isCallUIOpen && incomingCallDataGlobal && videoCallRef.current) {
       console.log("✅ Inject call vào VideoCall");
-
       videoCallRef.current.handleIncomingCall(incomingCallDataGlobal);
     }
   }, [isCallUIOpen, incomingCallDataGlobal]);
@@ -388,31 +356,19 @@ export default function ChatBox({
     return `${m}:${s}`;
   };
 
-  // <<<<<<< HEAD
-  //   // LOAD ====================================================
-
-  //   const loadMessages = async () => {
-  //     //    setMessages([]);
-  // =======
   const normalizePinnedMessages = (raw = []) => {
     if (!Array.isArray(raw)) return [];
-
     const map = new Map();
-
     raw.forEach((p) => {
       const id = p?.message?._id;
       if (id && !map.has(id)) {
         map.set(id, p);
       }
     });
-
     return Array.from(map.values());
   };
-  // LOAD ====================================================
 
   const loadMessages = async () => {
-    //    setMessages([]);
-    // >>>>>>> origin/dam
     setCursor(null);
     setHasMore(true);
 
@@ -428,7 +384,6 @@ export default function ChatBox({
 
       setMessages(sorted);
 
-      // 🔥 SCROLL NGAY TẠI ĐÂY (CHUẨN NHẤT)
       requestAnimationFrame(() => {
         bottomRef.current?.scrollIntoView({ behavior: "auto" });
       });
@@ -440,7 +395,6 @@ export default function ChatBox({
 
   const loadMore = async () => {
     if (!hasMore || loadingMore) {
-      console.log("🚫 Không load nữa", { hasMore, loadingMore });
       return;
     }
 
@@ -452,11 +406,7 @@ export default function ChatBox({
 
       setLoadingMore(true);
 
-      console.log("🔥 LOAD MORE với cursor:", cursor);
-
       const res = await getMessages(conversationId, cursor);
-
-      console.log("🔥 RESPONSE:", res.data);
 
       if (res.success) {
         const sorted = [...res.data.messages].sort(
@@ -475,7 +425,6 @@ export default function ChatBox({
         });
 
         if (res.data.nextCursor === cursor) {
-          console.log("❌ Cursor không đổi → STOP");
           setHasMore(false);
           return;
         }
@@ -491,7 +440,7 @@ export default function ChatBox({
     } catch (err) {
       console.error("loadMore lỗi:", err);
     } finally {
-      setLoadingMore(false); // 🔥 QUAN TRỌNG
+      setLoadingMore(false);
     }
   };
 
@@ -509,9 +458,7 @@ export default function ChatBox({
       emitSeen();
     }
 
-    // 🔥 load thêm khi scroll lên top
     if (el.scrollTop <= 0 && hasMore && !loadingMore) {
-      console.log("📥 Trigger loadMore");
       loadMore();
     }
   };
@@ -562,31 +509,25 @@ export default function ChatBox({
       }
 
       const handleFriendRequestReceivedRealtime = async () => {
-        console.log("📩 friend_request_received");
         await loadFriendBoxData();
-
         if (!(tab === "friends" && friendSection === "requests")) {
           setHasNewFriendRequest(true);
         }
       };
 
       const handleFriendRequestSentRealtime = async () => {
-        console.log("📤 friend_request_sent");
         await loadFriendBoxData();
       };
 
       const handleFriendAcceptedRealtime = async () => {
-        console.log("✅ friend_request_accepted");
         await loadFriendBoxData();
       };
 
       const handleFriendRejectedRealtime = async () => {
-        console.log("❌ friend_request_rejected");
         await loadFriendBoxData();
       };
 
       const handleNotificationRealtime = async () => {
-        console.log("🔔 new_notification");
         await loadFriendBoxData();
       };
 
@@ -613,9 +554,7 @@ export default function ChatBox({
     };
   }, [tab, friendSection, setHasNewFriendRequest]);
 
-  // Load pinned messages khi mở chat
   useEffect(() => {
-    // 👉 1. THÊM LỆNH CHẶN NÀY: Nếu không có ID hoặc ĐANG LÀ AI thì KHÔNG làm gì cả
     if (!conversationId || selected?.isAI) return;
 
     let mounted = true;
@@ -623,14 +562,11 @@ export default function ChatBox({
     const loadPinned = async () => {
       try {
         const res = await getPinnedMessagesAPI(conversationId);
-        // console.log("PINNED API RESPONSE:", res);
-
         const success = res?.success || res?.data?.success;
         const pins = res?.data?.data || res?.data || [];
 
         if (mounted) {
           if (success) {
-            // Đảm bảo hàm normalizePinnedMessages đã được định nghĩa ở trên
             setPinnedMessages(normalizePinnedMessages(pins));
           } else {
             setPinnedMessages([]);
@@ -647,25 +583,16 @@ export default function ChatBox({
     return () => {
       mounted = false;
     };
-  }, [conversationId, selected]); // Thêm selected vào dependency
-
+  }, [conversationId, selected]);
 
   const handleUnpin = async (msg) => {
     try {
-      // <<<<<<< HEAD
-      //       const res = await pinMessageAPI(selected._id, msg._id);
-
-      //       if (res?.data?.success) {
-      //         setPinnedMessages(res.data.data?.pinnedMessages || []);
-      // =======
       const res = await pinMessageAPI(conversationId, msg._id);
-
       const success = res?.success || res?.data?.success;
       const pins = res?.data?.data?.pinnedMessages || res?.data?.pinnedMessages || [];
 
       if (success) {
         setPinnedMessages(normalizePinnedMessages(pins));
-        // >>>>>>> origin/dam
       }
     } catch (err) {
       console.error("❌ UNPIN ERROR:", err.response?.data || err.message);
@@ -675,7 +602,6 @@ export default function ChatBox({
   const emitSeen = () => {
     const socket = getSocket();
 
-    // ❗ CHẶN
     if (!socket || !selected?._id || !myId) return;
 
     socket.emit("seen", {
@@ -715,7 +641,6 @@ export default function ChatBox({
 
   useEffect(() => {
     if (!selected?._id) return;
-
     setUnreadMap(prev => ({
       ...prev,
       [selected._id]: 0
@@ -724,7 +649,6 @@ export default function ChatBox({
 
   useEffect(() => {
     if (!selected?._id) return;
-
     setTimeout(() => {
       emitSeen();
     }, 300);
@@ -734,12 +658,8 @@ export default function ChatBox({
     const socket = getSocket();
     if (!socket) return;
 
-    // 🔥 nhận danh sách online ban đầu
     const handleOnlineList = (list) => {
-      console.log("🔥 ONLINE LIST RAW:", list);
-
       const map = {};
-
       list.forEach((u) => {
         const id =
           typeof u === "string"
@@ -750,13 +670,9 @@ export default function ChatBox({
           map[String(id)] = true;
         }
       });
-
-      console.log("🔥 ONLINE MAP:", JSON.stringify(map, null, 2));
-
       setOnlineUsers(map);
     };
 
-    // 🔥 khi có user online
     const handleUserOnline = (userId) => {
       setOnlineUsers((prev) => ({
         ...prev,
@@ -764,7 +680,6 @@ export default function ChatBox({
       }));
     };
 
-    // 🔥 khi user offline
     const handleUserOffline = ({ userId, lastSeen }) => {
       setOnlineUsers((prev) => ({
         ...prev,
@@ -783,12 +698,10 @@ export default function ChatBox({
       socket.off("user_offline", handleUserOffline);
     };
   }, []);
-  // ================= SEND =================
-  // NÂNG CAO: GOM GỌN CHUNG CHO CẢ SEND VÀ EDIT
+
   const sendMessage = async () => {
     if (!selected?._id) return;
 
-    // 🔥 EDIT MODE
     if (editingMessage) {
       const res = await editMessageAPI({
         messageId: editingMessage._id,
@@ -798,7 +711,6 @@ export default function ChatBox({
       if (res.success) {
         setMessages((prev) =>
           prev.map((m) => {
-            // 🔥 update chính message bị sửa
             if (m._id === editingMessage._id) {
               return {
                 ...m,
@@ -806,8 +718,6 @@ export default function ChatBox({
                 isEdited: true,
               };
             }
-
-            // 🔥 update message đang reply tới nó
             if (m.replyTo?._id === editingMessage._id) {
               return {
                 ...m,
@@ -818,7 +728,6 @@ export default function ChatBox({
                 },
               };
             }
-
             return m;
           })
         );
@@ -856,35 +765,16 @@ export default function ChatBox({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  // ================= REACTION =================
-  const handleReaction = async (msg, type) => {
-    const res = await reactMessageAPI({
-      messageId: msg._id,
-      type,
-    });
-
-    if (res.success) {
-      setMessages((prev) =>
-        prev.map((m) =>
-          m._id === msg._id ? res.data : m
-        )
-      );
-    }
-  };
-
-  // ================= HỖ TRỢ GỬI KHI NHẤN ENTER =================
   const handleKeyDown = (e) => {
     if (e.key === "Enter") sendMessage();
   };
 
-  // ================= DELETE =================
   const handleDelete = async (msg) => {
     const res = await deleteMessageAPI({ messageId: msg._id });
 
     if (res.success) {
       setMessages((prev) =>
         prev.map((m) => {
-          // 🔥 message bị xóa
           if (m._id === msg._id) {
             return {
               ...m,
@@ -892,8 +782,6 @@ export default function ChatBox({
               isDeleted: true,
             };
           }
-
-          // 🔥 message đang reply tới nó
           if (m.replyTo?._id === msg._id) {
             return {
               ...m,
@@ -904,14 +792,60 @@ export default function ChatBox({
               },
             };
           }
-
           return m;
         })
       );
     }
   };
 
-  // ================= FRIEND REQUEST ACTIONS =================
+  // ================= Chuyển tiếp =================
+  const handleOpenForwardModal = async (msg) => {
+    setMessageToForward(msg);
+    const res = await getConversationsAPI();
+    if (res?.success) {
+      setConversationsList(res.data);
+      setSelectedForwardTargets([]);
+      setShowForwardModal(true);
+    } else {
+      alert("Không thể tải danh sách cuộc trò chuyện để chuyển tiếp.");
+    }
+  };
+
+  const toggleForwardTarget = (convId) => {
+    setSelectedForwardTargets((prev) =>
+      prev.includes(convId) ? prev.filter((id) => id !== convId) : [...prev, convId]
+    );
+  };
+
+  const submitForwardMessage = async () => {
+    if (selectedForwardTargets.length === 0) {
+      alert("Vui lòng chọn ít nhất 1 người/nhóm để chuyển tiếp!");
+      return;
+    }
+    if (!messageToForward) return;
+
+    setIsForwarding(true);
+    try {
+      const res = await forwardMessageAPI({
+        originalMessageId: messageToForward._id,
+        targetConversationIds: selectedForwardTargets,
+      });
+
+      if (res?.success) {
+        setShowForwardModal(false);
+        setMessageToForward(null);
+        alert("Đã chuyển tiếp tin nhắn thành công!");
+      } else {
+        alert(res?.message || "Chuyển tiếp thất bại");
+      }
+    } catch (error) {
+      console.log(error);
+      alert("Lỗi khi chuyển tiếp tin nhắn");
+    } finally {
+      setIsForwarding(false);
+    }
+  };
+
   const handleAccept = async (requestId) => {
     try {
       setProcessingRequestId(requestId);
@@ -958,32 +892,22 @@ export default function ChatBox({
     }
   };
 
-  // ================= SEARCH =================
   const handleSearch = async () => {
     const res = await searchMessagesAPI(selected._id, search);
 
-    if (res.data.success) {
+    if (res.data?.success) {
       setSearchResults(res.data.data || []);
     }
   };
 
-  // ================= PIN =================
   const handlePin = async (msg) => {
     try {
-      // <<<<<<< HEAD
-      //       const res = await pinMessageAPI(selected._id, msg._id);
-
-      //       if (res?.data?.success) {
-      //         setPinnedMessages(res.data.data?.pinnedMessages || []);
-      // =======
       const res = await pinMessageAPI(conversationId, msg._id);
-
       const success = res?.success || res?.data?.success;
       const pins = res?.data?.data?.pinnedMessages || res?.data?.pinnedMessages || [];
 
       if (success) {
         setPinnedMessages(normalizePinnedMessages(pins));
-        // >>>>>>> origin/dam
       }
     } catch (err) {
       console.error("❌ PIN ERROR:", err.response?.data || err.message);
@@ -1011,7 +935,7 @@ export default function ChatBox({
 
     return (
       <div
-        id={m._id} // 🔥 THÊM DÒNG NÀY
+        id={m._id}
         key={m._id || index}
         className={`d-flex mb-3 ${isMe ? "justify-content-end" : "justify-content-start"
           }`}
@@ -1035,11 +959,6 @@ export default function ChatBox({
               border: "1px solid #eee",
             }}
           />
-          // <<<<<<< HEAD
-
-          // =======
-
-          // >>>>>>> origin/dam
         )}
 
         {/* BUBBLE */}
@@ -1051,12 +970,121 @@ export default function ChatBox({
             borderRadius: bubbleRadius,
             backgroundColor:
               highlightId === m._id
-                ? "#ffe58f"   // màu highlight
+                ? "#ffe58f"
                 : bubbleBg,
             color: textColor,
             border: `1px solid ${borderColor}`,
           }}
         >
+
+          {/* ================= MENU CHỨC NĂNG (Ghim, Sửa, Xóa, CHUYỂN TIẾP) ================= */}
+          {hoverId === m._id && (
+            <div
+              style={{
+                position: "absolute",
+                top: 0,
+                right: isMe ? "100%" : "-20px",
+                cursor: "pointer",
+              }}
+              onClick={() =>
+                setMenuId(menuId === m._id ? null : m._id)
+              }
+            >
+              ⋯
+            </div>
+          )}
+
+          {menuId === m._id && (
+            <div
+              className="shadow-sm border"
+              style={{
+                position: "absolute",
+                top: "10px",
+                right: isMe ? "100%" : "auto",
+                left: isMe ? "auto" : "100%",
+                marginRight: isMe ? "10px" : "0",
+                marginLeft: !isMe ? "10px" : "0",
+                background: "#ffffff",
+                borderRadius: "8px",
+                minWidth: "160px",
+                zIndex: 100,
+                padding: "6px 0",
+                fontSize: "14px",
+                color: "#111"
+              }}
+            >
+              <div
+                className="d-flex align-items-center px-3 py-2 hover-bg"
+                style={{ cursor: "pointer", transition: "0.2s" }}
+                onClick={() => {
+                  setReplyMessage(m);
+                  setMenuId(null);
+                }}
+              >
+                <span className="me-3 text-secondary"><FaReply size={15} /></span>
+                Trả lời
+              </div>
+
+              {/* 👉 NÚT CHUYỂN TIẾP TIN NHẮN TẠI ĐÂY */}
+              <div
+                className="d-flex align-items-center px-3 py-2 hover-bg"
+                style={{ cursor: "pointer", transition: "0.2s" }}
+                onClick={() => {
+                  handleOpenForwardModal(m);
+                  setMenuId(null);
+                }}
+              >
+                <span className="me-3 text-secondary"><FaShare size={15} /></span>
+                Chuyển tiếp
+              </div>
+
+              <div
+                className="d-flex align-items-center px-3 py-2 hover-bg"
+                style={{ cursor: "pointer", transition: "0.2s" }}
+                onClick={() => {
+                  handlePin(m);
+                  setMenuId(null);
+                }}
+              >
+                <span className="me-3 text-secondary"><FaThumbtack size={14} /></span>
+                Ghim
+              </div>
+
+              {isMe && (
+                <>
+                  <div
+                    className="d-flex align-items-center px-3 py-2 hover-bg"
+                    style={{ cursor: "pointer", transition: "0.2s" }}
+                    onClick={() => {
+                      setEditingMessage(m);
+                      setMessage(m.content);
+                      setMenuId(null);
+                    }}
+                  >
+                    <span className="me-3 text-secondary"><FaPen size={14} /></span>
+                    Sửa tin nhắn
+                  </div>
+
+                  {/* ĐƯỜNG KẺ PHÂN CÁCH */}
+                  <div style={{ height: "1px", backgroundColor: "#f0f0f0", margin: "4px 0" }}></div>
+
+                  <div
+                    className="d-flex align-items-center px-3 py-2 text-danger hover-bg-danger"
+                    style={{ cursor: "pointer", transition: "0.2s" }}
+                    onMouseOver={(e) => e.currentTarget.style.backgroundColor = "#ffe5e5"}
+                    onMouseOut={(e) => e.currentTarget.style.backgroundColor = "transparent"}
+                    onClick={() => {
+                      handleDelete(m);
+                      setMenuId(null);
+                    }}
+                  >
+                    <span className="me-3"><FaTrash size={14} /></span>
+                    Xóa
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           {/* ================= REPLY ================= */}
           {m.replyTo && (
@@ -1308,102 +1336,6 @@ export default function ChatBox({
               ))}
             </div>
           )}
-          {/* ================= MENU (...) ================= */}
-          {hoverId === m._id && (
-            <div
-              style={{
-                position: "absolute",
-                top: 0,
-                right: isMe ? "100%" : "-20px",
-                cursor: "pointer",
-              }}
-              onClick={() =>
-                setMenuId(menuId === m._id ? null : m._id)
-              }
-            >
-              ⋯
-            </div>
-          )}
-
-          {menuId === m._id && (
-            <div
-              className="shadow-sm border"
-              style={{
-                position: "absolute",
-                top: "10px", // Đẩy lên một chút cho ôm sát bong bóng chat
-                right: isMe ? "100%" : "auto",
-                left: isMe ? "auto" : "100%",
-                marginRight: isMe ? "10px" : "0",
-                marginLeft: !isMe ? "10px" : "0",
-                background: "#ffffff",
-                borderRadius: "8px",
-                minWidth: "160px",
-                zIndex: 100,
-                padding: "6px 0",
-                fontSize: "14px",
-                color: "#111"
-              }}
-            >
-              <div
-                className="d-flex align-items-center px-3 py-2 hover-bg"
-                style={{ cursor: "pointer", transition: "0.2s" }}
-                onClick={() => {
-                  setReplyMessage(m);
-                  setMenuId(null);
-                }}
-              >
-                <span className="me-3 text-secondary"><FaReply size={15} /></span>
-                Trả lời
-              </div>
-
-              <div
-                className="d-flex align-items-center px-3 py-2 hover-bg"
-                style={{ cursor: "pointer", transition: "0.2s" }}
-                onClick={() => {
-                  handlePin(m);
-                  setMenuId(null);
-                }}
-              >
-                <span className="me-3 text-secondary"><FaThumbtack size={14} /></span>
-                Ghim
-              </div>
-
-              {isMe && (
-                <>
-                  <div
-                    className="d-flex align-items-center px-3 py-2 hover-bg"
-                    style={{ cursor: "pointer", transition: "0.2s" }}
-                    onClick={() => {
-                      setEditingMessage(m);
-                      setMessage(m.content);
-                      setMenuId(null);
-                    }}
-                  >
-                    <span className="me-3 text-secondary"><FaPen size={14} /></span>
-                    Sửa tin nhắn
-                  </div>
-
-                  {/* ĐƯỜNG KẺ PHÂN CÁCH (Zalo Style) */}
-                  <div style={{ height: "1px", backgroundColor: "#f0f0f0", margin: "4px 0" }}></div>
-
-                  <div
-                    className="d-flex align-items-center px-3 py-2 text-danger hover-bg-danger"
-                    style={{ cursor: "pointer", transition: "0.2s" }}
-                    // Nếu bạn dùng hover-bg cũ, có thể thêm onMouseOver đổi màu nền đỏ nhạt cho đẹp
-                    onMouseOver={(e) => e.currentTarget.style.backgroundColor = "#ffe5e5"}
-                    onMouseOut={(e) => e.currentTarget.style.backgroundColor = "transparent"}
-                    onClick={() => {
-                      handleDelete(m);
-                      setMenuId(null);
-                    }}
-                  >
-                    <span className="me-3"><FaTrash size={14} /></span>
-                    Xóa
-                  </div>
-                </>
-              )}
-            </div>
-          )}
 
           {/* ================= TIME ================= */}
           <div
@@ -1423,6 +1355,7 @@ export default function ChatBox({
       </div>
     );
   };
+
   if (tab === "friends" && friendSection === "friends") {
     return (
       <div className="col d-flex flex-column h-100 bg-white">
@@ -1605,13 +1538,12 @@ export default function ChatBox({
           Chọn một cuộc trò chuyện để bắt đầu nhắn tin.
         </div>
 
-        {/* VẪN NHÚNG COMPONENT VIDEOCALL VÀO ĐỂ LẮNG NGHE LỆNH (GIAO DIỆN SẼ ẨN/HIỆN QUA BIẾN isCallUIOpen) */}
         {activeSocket && user && isCallUIOpen && (
           <VideoCall
             ref={videoCallRef}
             socket={activeSocket}
             currentUser={user}
-            partnerId={null} // VideoCall.jsx sẽ tự động trích xuất thông tin đối tác từ luồng incomingCallData
+            partnerId={null}
             conversationId={null}
             onClose={() => setIsCallUIOpen(false)}
           />
@@ -1634,8 +1566,6 @@ export default function ChatBox({
     selected?.userId
     ||
     null;
-
-  console.log("👉 partnerId:", partnerId);
 
   return (
     <div className="col d-flex flex-column h-100">
@@ -1678,17 +1608,11 @@ export default function ChatBox({
               {onlineUsers[partnerId]
                 ? "Đang hoạt động"
                 : onlineUsers[`lastSeen_${partnerId}`]
-                  // <<<<<<< HEAD
-                  //                   ? `Hoạt động ${new Date(
-                  //                     onlineUsers[`lastSeen_${partnerId}`]
-                  //                   ).toLocaleTimeString()}`
-                  //                   : "Không hoạt động"}
-                  // =======
+
                   ? `Hoạt động ${new Date(
                     onlineUsers[`lastSeen_${partnerId}`]
                   ).toLocaleTimeString()}`
                   : "Không hoạt động"}
-              {/* >>>>>>> origin/dam */}
             </small>
           </div>
         </div>
@@ -1786,7 +1710,6 @@ export default function ChatBox({
                   borderBottom: "1px solid rgba(0,0,0,0.05)",
                 }}
               >
-                {/* CLICK → SCROLL */}
                 <div
                   style={{ flex: 1 }}
                   onClick={() => {
@@ -1809,7 +1732,6 @@ export default function ChatBox({
                   )}
                 </div>
 
-                {/* ❌ NÚT BỎ GHIM */}
                 <div
                   style={{
                     marginLeft: 10,
@@ -1818,7 +1740,7 @@ export default function ChatBox({
                     fontSize: 12,
                   }}
                   onClick={(e) => {
-                    e.stopPropagation(); // 🔥 QUAN TRỌNG: không trigger scroll
+                    e.stopPropagation();
                     handleUnpin(msg);
                   }}
                 >
@@ -1836,11 +1758,6 @@ export default function ChatBox({
         ref={containerRef}
         onClick={emitSeen}
         onScroll={(e) => {
-          // <<<<<<< HEAD
-          //           emitSeen();
-          //           handleScroll(e);
-          //         }}
-          // =======
           emitSeen();
           handleScroll(e);
         }}
@@ -1872,19 +1789,15 @@ export default function ChatBox({
       {/* INPUT */}
       <div className="p-3 border-top bg-white position-relative">
 
-        {/* Emoji Picker */}
         {showEmoji && (
           <div className="shadow rounded" style={{ position: "absolute", bottom: "70px", right: "20px", zIndex: 10 }}>
             <EmojiPicker onEmojiClick={handleEmojiClick} />
           </div>
         )}
 
-        {/* KHUNG XEM TRƯỚC FILE / ẢNH ĐÃ CHỌN */}
         {file && (
           <div className="mb-2 d-flex">
             <div className="position-relative border rounded p-1 bg-light shadow-sm" style={{ display: "inline-block" }}>
-
-              {/* Nút X để xóa file đã chọn */}
               <button
                 onClick={() => setFile(null)}
                 className="btn btn-danger rounded-circle position-absolute d-flex align-items-center justify-content-center"
@@ -1894,7 +1807,6 @@ export default function ChatBox({
                 ✕
               </button>
 
-              {/* Hiển thị ảnh nếu là file ảnh, ngược lại hiển thị tên file */}
               {file.type && file.type.startsWith("image/") ? (
                 <img
                   src={URL.createObjectURL(file)}
@@ -1913,17 +1825,15 @@ export default function ChatBox({
           </div>
         )}
 
-        {/* KHUNG NHẬP LIỆU */}
         <div className="d-flex gap-2 align-items-center">
 
-          {/* Nút đính kèm */}
           <input
             type="file"
             id="file-upload"
             style={{ display: "none" }}
             onChange={(e) => {
               if (e.target.files[0]) setFile(e.target.files[0]);
-              e.target.value = null; // Reset input để có thể chọn lại cùng 1 file nếu vừa xóa
+              e.target.value = null;
             }}
           />
           <label
@@ -1934,7 +1844,6 @@ export default function ChatBox({
             📎
           </label>
 
-          {/* Ô nhập tin nhắn */}
           <div className="d-flex align-items-center bg-light rounded-pill px-3 py-1 flex-grow-1 border">
             <input
               value={message}
@@ -1948,7 +1857,6 @@ export default function ChatBox({
               placeholder="Nhập tin nhắn..."
             />
 
-            {/* Nút Emoji */}
             <button
               onClick={() => setShowEmoji(!showEmoji)}
               className="btn btn-link text-decoration-none border-0 p-0 ms-2 flex-shrink-0"
@@ -1958,7 +1866,6 @@ export default function ChatBox({
             </button>
           </div>
 
-          {/* Nút Gửi */}
           <button
             onClick={sendMessage}
             className="btn btn-primary rounded-circle d-flex align-items-center justify-content-center flex-shrink-0"
@@ -1970,7 +1877,6 @@ export default function ChatBox({
         </div>
       </div>
 
-      {/* VIDEO CALL */}
       {activeSocket && user && isCallUIOpen && (
         <VideoCall
           ref={videoCallRef}
@@ -1980,6 +1886,88 @@ export default function ChatBox({
           conversationId={selected.conversationId || selected._id}
           onClose={() => setIsCallUIOpen(false)}
         />
+      )}
+
+      {/* 👉 MODAL CHUYỂN TIẾP TIN NHẮN TẠI ĐÂY */}
+      {showForwardModal && (
+        <div
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
+            display: "flex", justifyContent: "center", alignItems: "center", zIndex: 99999,
+          }}
+        >
+          <div
+            className="bg-white rounded shadow p-4 flex-column d-flex"
+            style={{ width: "450px", maxWidth: "95%", height: "60vh" }}
+          >
+            <div className="d-flex justify-content-between align-items-center mb-3">
+              <h5 className="fw-bold m-0">Chuyển tiếp đến</h5>
+              <button
+                className="btn-close"
+                onClick={() => setShowForwardModal(false)}
+              ></button>
+            </div>
+
+            {/* Danh sách bạn bè / nhóm chat */}
+            <div className="flex-grow-1 overflow-auto" style={{ borderTop: "1px solid #eee", borderBottom: "1px solid #eee" }}>
+              {conversationsList.length === 0 ? (
+                <div className="text-center text-muted p-4">Không có cuộc trò chuyện nào</div>
+              ) : (
+                conversationsList.map((item) => {
+                  const isSelected = selectedForwardTargets.includes(item._id);
+                  const targetName = item.name;
+                  const avatar = item.avatar || "https://i.pravatar.cc/100";
+
+                  return (
+                    <div
+                      key={item._id}
+                      className="d-flex align-items-center p-2 border-bottom"
+                      style={{ cursor: "pointer", backgroundColor: isSelected ? "#f0f7ff" : "transparent" }}
+                      onClick={() => toggleForwardTarget(item._id)}
+                    >
+                      <input
+                        type="checkbox"
+                        className="form-check-input me-3"
+                        checked={isSelected}
+                        readOnly
+                        style={{ transform: "scale(1.2)", cursor: "pointer" }}
+                      />
+                      <img
+                        src={avatar}
+                        alt={targetName}
+                        style={{ width: "45px", height: "45px", borderRadius: "50%", objectFit: "cover" }}
+                        className="me-3"
+                      />
+                      <div>
+                        <div className="fw-bold">{targetName}</div>
+                        {item.isGroup && <small className="text-muted">Nhóm chat</small>}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Footer Modal */}
+            <div className="d-flex justify-content-end mt-3 gap-2">
+              <button className="btn btn-secondary" onClick={() => setShowForwardModal(false)}>
+                Hủy
+              </button>
+              <button
+                className="btn btn-primary d-flex align-items-center gap-2"
+                onClick={submitForwardMessage}
+                disabled={isForwarding || selectedForwardTargets.length === 0}
+              >
+                {isForwarding ? (
+                  <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                ) : (
+                  <FaShare size={14} />
+                )}
+                Gửi {selectedForwardTargets.length > 0 ? `(${selectedForwardTargets.length})` : ""}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

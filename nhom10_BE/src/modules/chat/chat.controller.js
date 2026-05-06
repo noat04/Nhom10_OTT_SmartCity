@@ -241,6 +241,29 @@ class ChatController {
         }
     }
 
+    async forwardMessage(req, res) {
+        try {
+            const { originalMessageId, targetConversationIds } = req.body;
+            const userId = req.user.id;
+
+            if (!targetConversationIds || targetConversationIds.length === 0) {
+                return res.status(400).json({ success: false, message: "Vui lòng chọn ít nhất 1 người/nhóm để chuyển tiếp" });
+            }
+
+            // Gọi Service (Bên trong Service đã tự lo việc lưu DB + Bắn Socket Realtime)
+            const forwardedMessages = await chatService.forwardMessage(userId, originalMessageId, targetConversationIds);
+
+            res.json({
+                success: true,
+                message: "Chuyển tiếp thành công",
+                data: forwardedMessages
+            });
+
+        } catch (err) {
+            console.log("Lỗi Forward Message:", err);
+            res.status(500).json({ success: false, message: err.message });
+        }
+    }
     //=============Chat Group=================
     async createGroup(req, res) {
         try {
@@ -343,24 +366,62 @@ class ChatController {
         }
     }
 
+    // async leaveGroup(req, res) {
+    //     try {
+    //         const { conversationId } = req.body;
+    //         const userId = req.user.id;
+
+    //         const updated = await chatService.leaveGroup(conversationId, userId);
+
+    //         const io = require('../../shared/utils/socket').getIO();
+
+    //         io.to(conversationId.toString()).emit("group_left", updated);
+    //         updated.members.forEach(m => {
+    //             io.to(m.user._id.toString()).emit("conversation_updated");
+    //         });
+
+    //         res.json({
+    //             success: true,
+    //             data: updated
+    //         });
+
+    //     } catch (err) {
+    //         res.status(500).json({
+    //             success: false,
+    //             message: err.message
+    //         });
+    //     }
+    // }
     async leaveGroup(req, res) {
         try {
             const { conversationId } = req.body;
             const userId = req.user.id;
 
             const updated = await chatService.leaveGroup(conversationId, userId);
-
             const io = require('../../shared/utils/socket').getIO();
 
-            io.to(conversationId.toString()).emit("group_left", updated);
-            updated.members.forEach(m => {
-                io.to(m.user._id.toString()).emit("conversation_updated");
-            });
+            if (updated) {
+                // Nhóm vẫn còn người -> Báo cho những người ở lại
+                io.to(conversationId.toString()).emit("group_left", updated);
+                updated.members.forEach(m => {
+                    io.to(m.user._id.toString()).emit("conversation_updated");
+                });
 
-            res.json({
-                success: true,
-                data: updated
-            });
+                // Báo cho chính người vừa rời đi biết để App của họ xóa nhóm đó khỏi màn hình
+                io.to(userId.toString()).emit("conversation_updated");
+
+                res.json({
+                    success: true,
+                    data: updated
+                });
+            } else {
+                // Nhóm bị giải tán do người cuối cùng rời đi (updated = null)
+                io.to(userId.toString()).emit("conversation_updated");
+                res.json({
+                    success: true,
+                    message: "Nhóm đã được giải tán vì không còn thành viên nào."
+                });
+            }
 
         } catch (err) {
             res.status(500).json({

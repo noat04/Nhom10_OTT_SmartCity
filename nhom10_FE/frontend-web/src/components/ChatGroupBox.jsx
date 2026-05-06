@@ -7,6 +7,7 @@ import {
   FaTrash,
   FaEllipsisH,
   FaHeart,
+  FaShare, // 👉 IMPORT THÊM ICON CHUYỂN TIẾP
 } from "react-icons/fa";
 
 import GroupInfoModal from "./GroupInfoModal";
@@ -21,6 +22,8 @@ import {
   pinMessageAPI,
   getPinnedMessagesAPI,
   unsendMessageAPI,
+  forwardMessageAPI, // 👉 IMPORT API CHUYỂN TIẾP
+  getConversationsAPI, // 👉 IMPORT API LẤY DANH SÁCH CHAT
 } from "../api/chatApi";
 
 import { getSocket } from "../socket/socket";
@@ -59,6 +62,13 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
   const pendingScrollRef = useRef(false);
   const loadingMoreRef = useRef(false);
 
+  // 👉 THÊM STATE QUẢN LÝ CHUYỂN TIẾP
+  const [showForwardModal, setShowForwardModal] = useState(false);
+  const [messageToForward, setMessageToForward] = useState(null);
+  const [conversationsList, setConversationsList] = useState([]);
+  const [selectedForwardTargets, setSelectedForwardTargets] = useState([]);
+  const [isForwarding, setIsForwarding] = useState(false);
+
   const myId = localStorage.getItem("userId");
 
   const emojiMap = {
@@ -81,6 +91,55 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
       }
     });
     return Array.from(unique.values());
+  };
+
+  // ================= CHUYỂN TIẾP TIN NHẮN (FORWARD) =================
+  const handleOpenForwardModal = async (msg) => {
+    setMessageToForward(msg);
+    setMenuId(null); // Đóng menu popup
+    const res = await getConversationsAPI();
+    if (res?.success) {
+      setConversationsList(res.data);
+      setSelectedForwardTargets([]);
+      setShowForwardModal(true);
+    } else {
+      alert("Không thể tải danh sách cuộc trò chuyện để chuyển tiếp.");
+    }
+  };
+
+  const toggleForwardTarget = (convId) => {
+    setSelectedForwardTargets((prev) =>
+      prev.includes(convId) ? prev.filter((id) => id !== convId) : [...prev, convId]
+    );
+  };
+
+  const submitForwardMessage = async () => {
+    if (selectedForwardTargets.length === 0) {
+      alert("Vui lòng chọn ít nhất 1 người/nhóm để chuyển tiếp!");
+      return;
+    }
+    if (!messageToForward) return;
+
+    setIsForwarding(true);
+    try {
+      const res = await forwardMessageAPI({
+        originalMessageId: messageToForward._id,
+        targetConversationIds: selectedForwardTargets,
+      });
+
+      if (res?.success) {
+        setShowForwardModal(false);
+        setMessageToForward(null);
+        alert("Đã chuyển tiếp tin nhắn thành công!");
+      } else {
+        alert(res?.message || "Chuyển tiếp thất bại");
+      }
+    } catch (error) {
+      console.log(error);
+      alert("Lỗi khi chuyển tiếp tin nhắn");
+    } finally {
+      setIsForwarding(false);
+    }
   };
 
   // ================= LOAD MESSAGE =================
@@ -179,14 +238,13 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
 
       setMessages((prev) => {
         const msgId = msg._id || msg.id;
-        if (!msgId) return prev; // Bỏ qua tin nhắn lỗi không có ID
+        if (!msgId) return prev;
 
         const exists = prev.some((m) => m._id === msgId);
         if (exists) return prev;
 
         pendingScrollRef.current = isAtBottomRef.current;
 
-        // ✅ FIX LỖI SORT: Đảm bảo có fallback Date.now() nếu createdAt bị undefined
         return [...prev, msg].sort(
           (a, b) => new Date(a.createdAt || Date.now()) - new Date(b.createdAt || Date.now())
         );
@@ -330,7 +388,6 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
   };
 
   // ================= SEND MESSAGE =================
-  // ✅ FIX: Đã khôi phục API để tạo data chuẩn trong Database, kèm Optimistic UI
   const sendMessage = async () => {
     if (!selected?._id) return;
     if (!message.trim() && !file && !editingMessage) return;
@@ -388,13 +445,11 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
       replyTo: replyMessage?._id || null,
     };
 
-    // Reset UI lập tức
     setMessage("");
     setFile(null);
     setReplyMessage(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
 
-    // Gọi API để Backend tạo _id chuẩn và broadcast sang các client khác
     const res = await sendMessageAPI(payload);
     const socket = getSocket();
     if (socket && res?.success) {
@@ -406,19 +461,12 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
     if (res?.success) {
       const sentMsg = res.data;
       if (sentMsg) {
-        // Cập nhật lại UI với message đầy đủ thông tin (có _id)
         setMessages((prev) => {
           if (prev.some((m) => m._id === sentMsg._id)) return prev;
           return [...prev, sentMsg].sort((a, b) => new Date(a.createdAt || Date.now()) - new Date(b.createdAt || Date.now()));
         });
       }
     }
-
-    // Dự phòng trường hợp muốn xài thêm socket thủ công
-    // const socket = getSocket();
-    // if (socket) {
-    //   socket.emit("send_message", payload);
-    // }
 
     isAtBottomRef.current = true;
     pendingScrollRef.current = true;
@@ -623,6 +671,12 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
               <div className="d-flex align-items-center px-3 py-2" style={{ cursor: "pointer" }} onClick={() => { setReplyMessage(m); setMenuId(null); }}>
                 <span className="me-3"><FaReply /></span> Trả lời
               </div>
+
+              {/* 👉 NÚT CHUYỂN TIẾP TIN NHẮN TẠI ĐÂY */}
+              <div className="d-flex align-items-center px-3 py-2 hover-bg" style={{ cursor: "pointer", transition: "0.2s" }} onClick={() => handleOpenForwardModal(m)}>
+                <span className="me-3 text-secondary"><FaShare /></span> Chuyển tiếp
+              </div>
+
               <div className="d-flex align-items-center px-3 py-2" style={{ cursor: "pointer" }} onClick={() => { pinnedMessages.some((p) => p.message?._id === m._id) ? handleUnpin(m) : handlePin(m); setMenuId(null); }}>
                 <span className="me-3"><FaThumbtack /></span> {pinnedMessages.some((p) => p.message?._id === m._id) ? "Bỏ ghim" : "Ghim"}
               </div>
@@ -763,6 +817,89 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
 
       {/* GROUP INFO */}
       <GroupInfoModal show={showGroupInfo} conversationId={selected?._id} onClose={() => setShowGroupInfo(false)} loadChats={loadChats} />
+
+      {/* 👉 MODAL CHUYỂN TIẾP TIN NHẮN */}
+      {showForwardModal && (
+        <div
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
+            display: "flex", justifyContent: "center", alignItems: "center", zIndex: 99999,
+          }}
+        >
+          <div
+            className="bg-white rounded shadow p-4 flex-column d-flex"
+            style={{ width: "450px", maxWidth: "95%", height: "60vh" }}
+          >
+            <div className="d-flex justify-content-between align-items-center mb-3">
+              <h5 className="fw-bold m-0">Chuyển tiếp đến</h5>
+              <button
+                className="btn-close"
+                onClick={() => setShowForwardModal(false)}
+              ></button>
+            </div>
+
+            {/* Danh sách bạn bè / nhóm chat */}
+            <div className="flex-grow-1 overflow-auto" style={{ borderTop: "1px solid #eee", borderBottom: "1px solid #eee" }}>
+              {conversationsList.length === 0 ? (
+                <div className="text-center text-muted p-4">Không có cuộc trò chuyện nào</div>
+              ) : (
+                conversationsList.map((item) => {
+                  const isSelected = selectedForwardTargets.includes(item._id);
+                  const targetName = item.name;
+                  const avatar = item.avatar || "https://i.pravatar.cc/100";
+
+                  return (
+                    <div
+                      key={item._id}
+                      className="d-flex align-items-center p-2 border-bottom"
+                      style={{ cursor: "pointer", backgroundColor: isSelected ? "#f0f7ff" : "transparent" }}
+                      onClick={() => toggleForwardTarget(item._id)}
+                    >
+                      <input
+                        type="checkbox"
+                        className="form-check-input me-3"
+                        checked={isSelected}
+                        readOnly
+                        style={{ transform: "scale(1.2)", cursor: "pointer" }}
+                      />
+                      <img
+                        src={avatar}
+                        alt={targetName}
+                        style={{ width: "45px", height: "45px", borderRadius: "50%", objectFit: "cover" }}
+                        className="me-3"
+                      />
+                      <div>
+                        <div className="fw-bold">{targetName}</div>
+                        {item.isGroup && <small className="text-muted">Nhóm chat</small>}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Footer Modal */}
+            <div className="d-flex justify-content-end mt-3 gap-2">
+              <button className="btn btn-secondary" onClick={() => setShowForwardModal(false)}>
+                Hủy
+              </button>
+              <button
+                className="btn btn-primary d-flex align-items-center gap-2"
+                onClick={submitForwardMessage}
+                disabled={isForwarding || selectedForwardTargets.length === 0}
+              >
+                {isForwarding ? (
+                  <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                ) : (
+                  <FaShare />
+                )}
+                Gửi {selectedForwardTargets.length > 0 ? `(${selectedForwardTargets.length})` : ""}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

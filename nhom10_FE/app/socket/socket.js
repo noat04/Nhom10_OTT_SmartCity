@@ -2,7 +2,7 @@ import { io } from "socket.io-client";
 
 let socket = null;
 const LOCAL_IP = "192.168.1.16"; // IP máy tính chạy backend
-
+// const LOCAL_IP = "192.168.1.55";
 // ======================================
 // 1. KẾT NỐI VÀ QUẢN LÝ SOCKET
 // ======================================

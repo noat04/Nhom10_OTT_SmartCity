@@ -194,7 +194,15 @@ export const addGroupMembersAPI = async (payload) => {
     };
   }
 };
-
+export const forwardMessageAPI = async (payload) => {
+  try {
+    const res = await api.post("/chat/message/forward", payload);
+    return res.data;
+  } catch (err) {
+    console.log("❌ forwardMessageAPI:", err?.response?.data || err.message);
+    return { success: false, message: err?.response?.data?.message || "Lỗi chuyển tiếp" };
+  }
+};
 export const removeGroupMemberAPI = async (payload) => {
   try {
     const res = await api.post("/chat/group/remove-member", payload);

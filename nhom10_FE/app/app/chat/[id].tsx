@@ -9,6 +9,7 @@ import {
   Image,
   KeyboardAvoidingView,
   Linking,
+  Modal,
   Platform,
   StyleSheet,
   Text,
@@ -23,6 +24,9 @@ import * as ImagePicker from "expo-image-picker";
 import {
   deleteMessageAPI,
   editMessageAPI,
+  // 👉 BỔ SUNG 2 API NÀY VÀO FILE chat.api.ts CỦA BẠN NẾU CHƯA CÓ
+  forwardMessageAPI,
+  getConversationsAPI,
   getMessagesAPI,
   getPinnedMessagesAPI,
   getPresignedUrlAPI,
@@ -31,7 +35,6 @@ import {
   searchMessagesAPI,
   sendMessageAPI,
 } from "../../service/chat.api";
-// import { callUser } from "../../socket/callSocket";
 import { getSocket } from "../../socket/socket";
 
 type Reaction = { userId: any; type: string };
@@ -49,7 +52,7 @@ type Message = {
   createdAt?: string;
   status?: string;
   reactions?: Reaction[];
-  replyTo?: Message; // Backend của bạn đã hỗ trợ field này
+  replyTo?: Message;
   isDeleted?: boolean;
 };
 
@@ -59,21 +62,17 @@ const emojiMap: Record<string, string> = {
 
 export default function ChatDetail() {
   const insets = useSafeAreaInsets();
-  // 👉 1. BỔ SUNG partnerId VÀO ĐÂY ĐỂ HỨNG DỮ LIỆU TỪ TRANG TRƯỚC TRUYỀN SANG
   const { id, name, avatar, partnerId } = useLocalSearchParams();
   const conversationId = Array.isArray(id) ? id[0] : id;
   const displayName = Array.isArray(name) ? name[0] : name;
   const displayAvatar = Array.isArray(avatar) ? avatar[0] : avatar;
-  // 👉 2. ĐẢM BẢO NÓ LÀ CHUỖI (STRING)
   const finalPartnerId = Array.isArray(partnerId) ? partnerId[0] : partnerId;
 
   const [message, setMessage] = useState("");
   const [chat, setChat] = useState<Message[]>([]);
   const [myId, setMyId] = useState<string | null>(null);
 
-  // 👉 STATE LƯU TIN NHẮN ĐANG ĐƯỢC CHỌN ĐỂ TRẢ LỜI
   const [replyMessage, setReplyMessage] = useState<Message | null>(null);
-
   const [typing, setTyping] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
@@ -95,10 +94,14 @@ export default function ChatDetail() {
   const messageIndexMap = useRef<{ [key: string]: number }>({});
 
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
-
-  // Thêm state này để nhớ loại cuộc gọi (audio hay video)
   const [pendingCallType, setPendingCallType] = useState<"audio" | "video" | null>(null);
 
+  // 👉 STATE QUẢN LÝ CHUYỂN TIẾP TIN NHẮN
+  const [showForwardModal, setShowForwardModal] = useState(false);
+  const [messageToForward, setMessageToForward] = useState<Message | null>(null);
+  const [conversationsList, setConversationsList] = useState<any[]>([]);
+  const [selectedForwardTargets, setSelectedForwardTargets] = useState<string[]>([]);
+  const [isForwarding, setIsForwarding] = useState(false);
 
   useEffect(() => {
     const map: any = {};
@@ -108,40 +111,17 @@ export default function ChatDetail() {
     messageIndexMap.current = map;
   }, [chat]);
 
-  // 👉 HÀM XỬ LÝ GỌI ĐIỆN
-  // 👉 3. SỬA LẠI HÀM XỬ LÝ GỌI ĐIỆN
-  // 👉 HÀM XỬ LÝ GỌI ĐIỆN (ĐÃ SỬA)
-  // const handleStartCall = (type: "audio" | "video") => {
-  //   if (!finalPartnerId) {
-  //     console.log("⚠️ partnerId không hợp lệ:", finalPartnerId);
-  //     Alert.alert("Lỗi", "Không tìm thấy thông tin người nhận cuộc gọi.");
-  //     return;
-  //   }
-
-  //   // 1. Lưu lại loại cuộc gọi
-  //   setPendingCallType(type);
-
-  //   // 2. CHỈ bắn sự kiện Socket yêu cầu Backend tạo cuộc gọi (Không tự tạo callId nữa)
-  //   callUser(conversationId, finalPartnerId, type);
-
-  //   // ❌ KHÔNG DÙNG router.push Ở ĐÂY NỮA
-  // };
-  // 👉 HÀM XỬ LÝ GỌI ĐIỆN
   const handleStartCall = (type: "audio" | "video") => {
     if (!finalPartnerId) {
       Alert.alert("Lỗi", "Không tìm thấy thông tin người nhận cuộc gọi.");
       return;
     }
-
     const socket = getSocket();
     if (!socket) {
       Alert.alert("Lỗi", "Chưa kết nối máy chủ, vui lòng thử lại.");
       return;
     }
-
     setPendingCallType(type);
-
-    // 👉 GỌI TRỰC TIẾP TỪ SOCKET (BỎ QUA FILE callSocket.js)
     socket.emit("call_init", {
       conversationId: conversationId,
       receiverId: finalPartnerId,
@@ -149,83 +129,46 @@ export default function ChatDetail() {
     });
   };
 
-
-  // ✏️ EDIT
   const handleEditMessage = async (msg: Message) => {
     setActiveReactionId(null);
     setEditingMessage(msg);
-    setMessage(msg.content); // đẩy content vào input
+    setMessage(msg.content);
   };
 
-  // 💾 SAVE EDIT
   const handleSaveEdit = async () => {
     if (!editingMessage) return;
-
-    const res = await editMessageAPI({
-      messageId: editingMessage._id,
-      content: message,
-    });
-
+    const res = await editMessageAPI({ messageId: editingMessage._id, content: message });
     if (res?.success) {
-      setChat(prev =>
-        prev.map(m =>
-          m._id === editingMessage._id
-            ? { ...m, content: message }
-            : m
-        )
-      );
+      setChat(prev => prev.map(m => m._id === editingMessage._id ? { ...m, content: message } : m));
       setEditingMessage(null);
       setMessage("");
     }
   };
 
-  // 🗑 DELETE
   const handleDeleteMessage = async (msgId: string) => {
     setActiveReactionId(null);
-
     const res = await deleteMessageAPI({ messageId: msgId });
-
     if (res?.success) {
-      setChat(prev =>
-        prev.map(m =>
-          m._id === msgId
-            ? { ...m, isDeleted: true }
-            : m
-        )
-      );
+      setChat(prev => prev.map(m => m._id === msgId ? { ...m, isDeleted: true } : m));
     }
   };
 
   const scrollToMessage = async (messageId: string) => {
     let index = messageIndexMap.current[messageId];
-
-    // ❌ chưa có trong list → load thêm
     if (index === undefined) {
-      console.log("⚠️ chưa load → load thêm...");
-
       while (hasMore) {
         await loadMoreMessages();
-
         index = messageIndexMap.current[messageId];
         if (index !== undefined) break;
       }
     }
-
     if (index !== undefined && flatListRef.current) {
-      flatListRef.current.scrollToIndex({
-        index,
-        animated: true,
-        viewPosition: 0.5,
-      });
-
+      flatListRef.current.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
       setHighlightId(messageId);
-
-      setTimeout(() => {
-        setHighlightId(null);
-      }, 2000);
+      setTimeout(() => { setHighlightId(null); }, 2000);
     }
   };
-  // ================= LOAD USER VÀ PINNED MESSAGES =================
+
   useEffect(() => {
     const loadUser = async () => {
       const userRaw = await AsyncStorage.getItem("user");
@@ -243,10 +186,8 @@ export default function ChatDetail() {
     loadPinned();
   }, [conversationId]);
 
-  // ================= DEBOUNCE TÌM KIẾM TIN NHẮN =================
   useEffect(() => {
     if (!isSearching) return;
-
     const delayDebounceFn = setTimeout(async () => {
       if (searchQuery.trim()) {
         setIsSearchLoading(true);
@@ -257,75 +198,48 @@ export default function ChatDetail() {
         setSearchResults([]);
       }
     }, 500);
-
     return () => clearTimeout(delayDebounceFn);
   }, [searchQuery, isSearching, conversationId]);
 
-  // 👉 LẮNG NGHE KHI BACKEND TẠO CUỘC GỌI THÀNH CÔNG THÌ MỚI CHUYỂN TRANG
   useEffect(() => {
     const socket = getSocket();
     if (!socket) return;
-
     const handleCallCreated = ({ callId }: { callId: string }) => {
       if (pendingCallType) {
         router.push({
           pathname: "/call/CallScreen",
-          params: {
-            callId: callId,
-            partnerId: finalPartnerId,
-            conversationId: conversationId, // 👉 BỔ SUNG DÒNG NÀY
-            isCaller: "true",
-            type: pendingCallType,
-          },
+          params: { callId: callId, partnerId: finalPartnerId, conversationId: conversationId, isCaller: "true", type: pendingCallType },
         } as any);
         setPendingCallType(null);
       }
     };
     socket.on("call_created", handleCallCreated);
-
-    return () => {
-      socket.off("call_created", handleCallCreated);
-    };
+    return () => { socket.off("call_created", handleCallCreated); };
   }, [pendingCallType, finalPartnerId]);
 
-  // ================= TẢI TIN NHẮN LẦN ĐẦU =================
   const loadMessages = async () => {
     if (!conversationId) return;
     const res = await getMessagesAPI(conversationId, null);
-
-    if (!res?.success) {
-      Alert.alert("Lỗi", res?.message);
-      return;
-    }
-
+    if (!res?.success) return Alert.alert("Lỗi", res?.message);
     const fetchedMsgs = res.data?.messages || res.data || [];
-    const messagesArray = Array.isArray(fetchedMsgs) ? fetchedMsgs : [];
-
-    setChat(messagesArray.reverse());
+    setChat(Array.isArray(fetchedMsgs) ? fetchedMsgs.reverse() : []);
     setNextCursor(res.data?.nextCursor || null);
     setHasMore(res.data?.hasMore || false);
   };
 
   useEffect(() => { loadMessages(); }, [conversationId]);
 
-  // ================= INFINITY SCROLL (TẢI THÊM) =================
   const loadMoreMessages = async () => {
     if (!hasMore || isLoadingMore || !nextCursor) return;
-
     setIsLoadingMore(true);
     const res = await getMessagesAPI(conversationId, nextCursor);
-
     if (res?.success) {
       const olderMessages = res.data?.messages || res.data || [];
-
       if (Array.isArray(olderMessages) && olderMessages.length > 0) {
         setChat((prev) => {
-          const uniqueOlderMessages = olderMessages.filter(
-            (oldMsg) => !prev.some((pMsg) => pMsg._id === oldMsg._id)
-          );
+          const uniqueOlderMessages = olderMessages.filter((oldMsg) => !prev.some((pMsg) => pMsg._id === oldMsg._id));
           return [...prev, ...uniqueOlderMessages.reverse()];
         });
-
         setNextCursor(res.data?.nextCursor || null);
         setHasMore(res.data?.hasMore || false);
       } else {
@@ -335,17 +249,14 @@ export default function ChatDetail() {
     setIsLoadingMore(false);
   };
 
-  // ================= SOCKET =================
   useEffect(() => {
     const socket = getSocket();
     if (!socket || !conversationId) return;
-
     socket.emit("joinConversation", conversationId);
 
     const handleNewMessage = (msg: Message) => {
       const id = typeof msg.conversationId === "object" ? (msg.conversationId as any)._id : msg.conversationId;
       if (String(id) !== String(conversationId)) return;
-
       setChat((prev) => {
         if (prev.some((m) => m._id === msg._id)) return prev;
         return [msg, ...prev];
@@ -372,28 +283,15 @@ export default function ChatDetail() {
     };
 
     const handleEdit = (updatedMsg: Message) => {
-      setChat(prev =>
-        prev.map(m =>
-          m._id === updatedMsg._id
-            ? { ...m, content: updatedMsg.content }
-            : m
-        )
-      );
+      setChat(prev => prev.map(m => m._id === updatedMsg._id ? { ...m, content: updatedMsg.content } : m));
     };
 
     const handleDelete = (msgId: string) => {
-      setChat(prev =>
-        prev.map(m =>
-          m._id === msgId
-            ? { ...m, isDeleted: true }
-            : m
-        )
-      );
+      setChat(prev => prev.map(m => m._id === msgId ? { ...m, isDeleted: true } : m));
     };
 
-    socket.on("essage_edited", handleEdit);
+    socket.on("message_edited", handleEdit);
     socket.on("message_deleted", handleDelete);
-
     socket.on("newMessage", handleNewMessage);
     socket.on("message_reaction", handleReaction);
     socket.on("message_seen", handleSeen);
@@ -412,7 +310,47 @@ export default function ChatDetail() {
     };
   }, [conversationId, myId]);
 
-  // ================= ACTIONS =================
+  // ================= XỬ LÝ CHUYỂN TIẾP (FORWARD) =================
+  const handleOpenForwardModal = async (msg: Message) => {
+    setMessageToForward(msg);
+    setActiveReactionId(null); // Ẩn menu đi
+    const res = await getConversationsAPI();
+    if (res?.success) {
+      setConversationsList(res.data);
+      setSelectedForwardTargets([]);
+      setShowForwardModal(true);
+    } else {
+      Alert.alert("Lỗi", "Không thể tải danh sách cuộc trò chuyện");
+    }
+  };
+
+  const toggleForwardTarget = (convId: string) => {
+    setSelectedForwardTargets(prev =>
+      prev.includes(convId) ? prev.filter(id => id !== convId) : [...prev, convId]
+    );
+  };
+
+  const submitForwardMessage = async () => {
+    if (selectedForwardTargets.length === 0) return Alert.alert("Thông báo", "Vui lòng chọn người nhận!");
+    if (!messageToForward) return;
+
+    setIsForwarding(true);
+    const res = await forwardMessageAPI({
+      originalMessageId: messageToForward._id,
+      targetConversationIds: selectedForwardTargets
+    });
+    setIsForwarding(false);
+
+    if (res?.success) {
+      setShowForwardModal(false);
+      setMessageToForward(null);
+      Alert.alert("Thành công", "Đã chuyển tiếp tin nhắn!");
+    } else {
+      Alert.alert("Lỗi", res?.message || "Chuyển tiếp thất bại");
+    }
+  };
+
+  // ================= CÁC ACTION KHÁC =================
   const handlePickImage = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.All, quality: 0.8 });
     if (!result.canceled) {
@@ -430,9 +368,7 @@ export default function ChatDetail() {
   };
 
   const send = async () => {
-    if (editingMessage) {
-      return handleSaveEdit(); // 🔥 đang edit thì save
-    }
+    if (editingMessage) return handleSaveEdit();
     if (!message.trim() && !selectedFile) return;
     setIsSending(true);
     let finalFileUrl = null;
@@ -457,14 +393,14 @@ export default function ChatDetail() {
         type: msgType,
         fileUrl: finalFileUrl,
         fileName: selectedFile?.name,
-        replyTo: replyMessage?._id || null, // 👉 Đính kèm ID tin nhắn đang trả lời
+        replyTo: replyMessage?._id || null,
       });
 
       if (!res?.success) Alert.alert("Lỗi", res?.message || "Gửi tin nhắn thất bại");
       else {
         setMessage("");
         setSelectedFile(null);
-        setReplyMessage(null); // Gửi xong thì xóa chế độ trả lời
+        setReplyMessage(null);
         flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
       }
     } catch (error) {
@@ -481,11 +417,8 @@ export default function ChatDetail() {
           const myExisting = currentReactions.find((r) => String(typeof r.userId === "object" ? r.userId._id : r.userId) === String(myId));
           let newReactions = [...currentReactions];
           if (myExisting) {
-            if (myExisting.type === type) {
-              newReactions = newReactions.filter((r) => String(typeof r.userId === "object" ? r.userId._id : r.userId) !== String(myId));
-            } else {
-              myExisting.type = type;
-            }
+            if (myExisting.type === type) newReactions = newReactions.filter((r) => String(typeof r.userId === "object" ? r.userId._id : r.userId) !== String(myId));
+            else myExisting.type = type;
           } else {
             newReactions.push({ userId: myId, type });
           }
@@ -500,20 +433,15 @@ export default function ChatDetail() {
   const handleTogglePin = async (msgId: string) => {
     setActiveReactionId(null);
     const res = await pinMessageAPI({ conversationId, messageId: msgId });
-    if (res?.success) {
-      setPinnedMessages(res.data?.pinnedMessages || []);
-    } else {
-      Alert.alert("Lỗi", "Thao tác ghim thất bại");
-    }
+    if (res?.success) setPinnedMessages(res.data?.pinnedMessages || []);
+    else Alert.alert("Lỗi", "Thao tác ghim thất bại");
   };
 
-  // 👉 HÀM KÍCH HOẠT CHẾ ĐỘ TRẢ LỜI
   const handleReplyMessage = (item: Message) => {
     setReplyMessage(item);
-    setActiveReactionId(null); // Đóng menu sau khi chọn
+    setActiveReactionId(null);
   };
 
-  // ================= HELPERS =================
   const formatTime = (dateString?: string) => {
     if (!dateString) return "";
     return new Date(dateString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -523,7 +451,6 @@ export default function ChatDetail() {
     return `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
   };
 
-  // 👉 Hàm hỗ trợ tóm tắt nội dung khi hiển thị Reply (Tránh chữ dài dằng dặc)
   const getMessageSnippet = (msg?: Message | null) => {
     if (!msg) return "";
     if (msg.type === "image") return "[Hình ảnh]";
@@ -549,13 +476,7 @@ export default function ChatDetail() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#e2e8f0" }} edges={["top", "bottom"]}>
-      {/* 👉 CẤU HÌNH LẠI KEYBOARD AVOIDING VIEW CHUẨN XÁC CHO ANDROID & IOS */}
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-      // Đẩy view lên một khoảng bằng với tai dưới (inset.bottom) để không bị hụt
-      // keyboardVerticalOffset={Platform.OS === "ios" ? 0 : insets.bottom}
-      >
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
 
         {/* HEADER VÀ TÌM KIẾM */}
         <View style={styles.header}>
@@ -585,14 +506,9 @@ export default function ChatDetail() {
                 <TouchableOpacity onPress={() => setIsSearching(true)}>
                   <Ionicons name="search" size={24} color="#0d6efd" />
                 </TouchableOpacity>
-                {/* <TouchableOpacity><Ionicons name="call-outline" size={24} color="#0d6efd" /></TouchableOpacity>
-                <TouchableOpacity><Ionicons name="videocam-outline" size={26} color="#0d6efd" /></TouchableOpacity> */}
-                {/* 👉 GẮN SỰ KIỆN GỌI AUDIO VÀO ĐÂY */}
                 <TouchableOpacity onPress={() => handleStartCall("audio")}>
                   <Ionicons name="call-outline" size={24} color="#0d6efd" />
                 </TouchableOpacity>
-
-                {/* 👉 GẮN SỰ KIỆN GỌI VIDEO VÀO ĐÂY */}
                 <TouchableOpacity onPress={() => handleStartCall("video")}>
                   <Ionicons name="videocam-outline" size={26} color="#0d6efd" />
                 </TouchableOpacity>
@@ -623,11 +539,7 @@ export default function ChatDetail() {
               <FlatList
                 data={searchResults}
                 keyExtractor={(item) => item._id}
-                getItemLayout={(data, index) => ({
-                  length: 80,
-                  offset: 80 * index,
-                  index,
-                })}
+                getItemLayout={(data, index) => ({ length: 80, offset: 80 * index, index })}
                 contentContainerStyle={{ paddingBottom: 20 }}
                 renderItem={({ item }) => {
                   const senderName = typeof item.senderId === "object" ? item.senderId.fullName : "Người dùng";
@@ -637,10 +549,7 @@ export default function ChatDetail() {
                       style={styles.searchResultItem}
                       onPress={() => {
                         setIsSearching(false);
-
-                        setTimeout(() => {
-                          scrollToMessage(item._id);
-                        }, 300); // 🔥 delay để FlatList render xong
+                        setTimeout(() => { scrollToMessage(item._id); }, 300);
                       }}>
                       <Image source={{ uri: avatarUrl }} style={{ width: 40, height: 40, borderRadius: 20, marginRight: 12 }} />
                       <View style={{ flex: 1 }}>
@@ -651,9 +560,7 @@ export default function ChatDetail() {
                     </TouchableOpacity>
                   );
                 }}
-                ListEmptyComponent={
-                  searchQuery.trim() ? <Text style={{ textAlign: "center", marginTop: 20, color: "#888" }}>Không tìm thấy kết quả</Text> : null
-                }
+                ListEmptyComponent={searchQuery.trim() ? <Text style={{ textAlign: "center", marginTop: 20, color: "#888" }}>Không tìm thấy kết quả</Text> : null}
               />
             )}
           </View>
@@ -662,28 +569,37 @@ export default function ChatDetail() {
             ref={flatListRef}
             data={chat}
             keyExtractor={(item, index) => item._id ? String(item._id) : `msg-${index}`}
-
             inverted={true}
-
             onEndReached={loadMoreMessages}
             onEndReachedThreshold={0.2}
             ListFooterComponent={isLoadingMore ? <ActivityIndicator size="small" color="#0d6efd" style={{ margin: 20 }} /> : null}
-
             contentContainerStyle={{ padding: 12, flexGrow: 1 }}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
-
             renderItem={({ item }) => {
-              const senderId = typeof item.senderId === "object" ? item.senderId._id : item.senderId;
+              // 👉 1. KHAI BÁO BIẾN KIỂM TRA CHỐNG LỖI CRASH
+              const isSenderObj = typeof item.senderId === "object" && item.senderId !== null;
+
+              // 👉 2. TRÍCH XUẤT DỮ LIỆU AN TOÀN
+              const senderId = isSenderObj ? item.senderId._id : item.senderId;
+              const senderName = isSenderObj ? (item.senderId.fullName || item.senderId.name) : "Người dùng";
               const isMe = String(senderId) === String(myId);
               const isReactionActive = activeReactionId === item._id;
-
               const isPinned = pinnedMessages.some(p => String(p.message?._id) === String(item._id));
+              // 🔴 XỬ LÝ TIN NHẮN HỆ THỐNG
+              if (item.type === "system") {
+                return (
+                  <View style={styles.systemMsgContainer}>
+                    <Text style={styles.systemMsgText}>
+                      <Text style={{ fontWeight: 'bold', color: '#555' }}>{senderName}</Text> {item.content}
+                    </Text>
+                  </View>
+                );
+              }
 
               return (
                 <View style={{ marginBottom: 16, zIndex: isReactionActive ? 100 : 1, elevation: isReactionActive ? 100 : 1 }}>
-
-                  {/* MENU NỔI (EMOJI + NÚT GHIM + NÚT TRẢ LỜI) */}
+                  {/* MENU NỔI (EMOJI + NÚT CHỨC NĂNG) */}
                   {isReactionActive && (
                     <View style={[styles.reactionPopupWrapper, isMe ? { alignItems: 'flex-end', marginRight: 8 } : { alignItems: 'flex-start', marginLeft: 38 }]}>
                       <View style={styles.reactionPopup}>
@@ -694,11 +610,17 @@ export default function ChatDetail() {
                         ))}
                       </View>
 
-                      {/* 👉 THÊM NÚT TRẢ LỜI VÀ NÚT GHIM NẰM CẠNH NHAU */}
-                      <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                      {/* 👉 THÊM THUỘC TÍNH flexWrap ĐỂ TRÁNH TRÀN MENU */}
+                      <View style={{ flexDirection: 'row', gap: 8, marginTop: 8, flexWrap: "wrap", justifyContent: isMe ? "flex-end" : "flex-start" }}>
                         <TouchableOpacity style={styles.actionBtn} onPress={() => handleReplyMessage(item)}>
                           <Ionicons name="arrow-undo" size={16} color="#fff" />
                           <Text style={styles.actionBtnText}>Trả lời</Text>
+                        </TouchableOpacity>
+
+                        {/* 👉 NÚT CHUYỂN TIẾP */}
+                        <TouchableOpacity style={styles.actionBtn} onPress={() => handleOpenForwardModal(item)}>
+                          <Ionicons name="arrow-forward" size={16} color="#fff" />
+                          <Text style={styles.actionBtnText}>Chuyển tiếp</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity style={styles.actionBtn} onPress={() => handleTogglePin(item._id)}>
@@ -706,7 +628,6 @@ export default function ChatDetail() {
                           <Text style={styles.actionBtnText}>{isPinned ? "Bỏ ghim" : "Ghim"}</Text>
                         </TouchableOpacity>
 
-                        {/* ✏️ EDIT (chỉ mình mới sửa được) */}
                         {isMe && !item.isDeleted && (
                           <TouchableOpacity style={styles.actionBtn} onPress={() => handleEditMessage(item)}>
                             <Ionicons name="create" size={16} color="#fff" />
@@ -714,7 +635,6 @@ export default function ChatDetail() {
                           </TouchableOpacity>
                         )}
 
-                        {/* 🗑 DELETE */}
                         {isMe && !item.isDeleted && (
                           <TouchableOpacity style={styles.actionBtn} onPress={() => handleDeleteMessage(item._id)}>
                             <Ionicons name="trash" size={16} color="#fff" />
@@ -733,72 +653,22 @@ export default function ChatDetail() {
                       <TouchableOpacity
                         activeOpacity={0.8}
                         onLongPress={() => setActiveReactionId(prev => prev === item._id ? null : item._id)}
-                        //style={{ backgroundColor: isMe ? "#0d6efd" : "#ffffff", padding: item.type === 'text' ? 12 : 6, borderRadius: 18, borderBottomRightRadius: isMe ? 4 : 18, borderBottomLeftRadius: !isMe ? 4 : 18, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2 }}
                         style={{
-                          backgroundColor:
-                            highlightId === item._id
-                              ? "#fde68a" // 🔥 màu highlight (vàng)
-                              : isMe
-                                ? "#0d6efd"
-                                : "#ffffff",
-
+                          backgroundColor: highlightId === item._id ? "#fde68a" : isMe ? "#0d6efd" : "#ffffff",
                           padding: item.type === "text" ? 12 : 6,
                           borderRadius: 18,
                           borderBottomRightRadius: isMe ? 4 : 18,
                           borderBottomLeftRadius: !isMe ? 4 : 18,
-                          shadowColor: "#000",
-                          shadowOffset: { width: 0, height: 1 },
-                          shadowOpacity: 0.1,
-                          shadowRadius: 2,
-                          elevation: 2,
+                          shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2,
                         }}
                       >
-                        {/* 👉 GIAO DIỆN HIỂN THỊ TIN NHẮN BỊ REPLY NẰM TRONG BONG BÓNG */}
-                        {/* {item.replyTo && (
-                          
-                          <View style={[styles.repliedBubble, { backgroundColor: isMe ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.05)" }]}>
-                            <Text style={{ fontWeight: 'bold', fontSize: 12, color: isMe ? '#fff' : '#111' }}>
-                              <Ionicons name="arrow-undo" size={12} /> {item.replyTo?.senderId?.fullName || "Người dùng"}
-                            </Text>
-                            <Text numberOfLines={1} style={{ fontSize: 12, color: isMe ? '#e0e0e0' : '#666', marginTop: 2 }}>
-                              {getMessageSnippet(item.replyTo)}
-                            </Text>
-                          </View>
-                        )} */}
                         {item.replyTo && (
-                          <TouchableOpacity
-                            activeOpacity={0.8}
-                            onPress={() => scrollToMessage(item.replyTo._id)} // 🔥 CLICK
-                          >
-                            <View
-                              style={[
-                                styles.repliedBubble,
-                                {
-                                  backgroundColor: isMe
-                                    ? "rgba(255,255,255,0.2)"
-                                    : "rgba(0,0,0,0.05)",
-                                },
-                              ]}
-                            >
-                              <Text
-                                style={{
-                                  fontWeight: "bold",
-                                  fontSize: 12,
-                                  color: isMe ? "#fff" : "#111",
-                                }}
-                              >
-                                <Ionicons name="arrow-undo" size={12} />{" "}
-                                {item.replyTo?.senderId?.fullName || "Người dùng"}
+                          <TouchableOpacity activeOpacity={0.8} onPress={() => scrollToMessage(item.replyTo!._id)}>
+                            <View style={[styles.repliedBubble, { backgroundColor: isMe ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.05)" }]}>
+                              <Text style={{ fontWeight: "bold", fontSize: 12, color: isMe ? "#fff" : "#111" }}>
+                                <Ionicons name="arrow-undo" size={12} /> {item.replyTo?.senderId?.fullName || "Người dùng"}
                               </Text>
-
-                              <Text
-                                numberOfLines={1}
-                                style={{
-                                  fontSize: 12,
-                                  color: isMe ? "#e0e0e0" : "#666",
-                                  marginTop: 2,
-                                }}
-                              >
+                              <Text numberOfLines={1} style={{ fontSize: 12, color: isMe ? "#e0e0e0" : "#666", marginTop: 2 }}>
                                 {getMessageSnippet(item.replyTo)}
                               </Text>
                             </View>
@@ -819,7 +689,6 @@ export default function ChatDetail() {
                       )}
                     </View>
                   </View>
-
                 </View>
               );
             }}
@@ -828,11 +697,9 @@ export default function ChatDetail() {
 
         {typing && !isSearching && <Text style={{ marginLeft: 50, color: "#888", marginBottom: 10, fontStyle: 'italic' }}>Đối tác đang nhập...</Text>}
 
-        {/* INPUT AREA (GỒM THANH PREVIEW REPLY VÀ Ô NHẬP TEXT) */}
+        {/* INPUT AREA */}
         {!isSearching && (
           <View style={{ backgroundColor: "#ffffff" }}>
-
-            {/* 👉 KHU VỰC HIỂN THỊ TIN NHẮN ĐANG CHUẨN BỊ TRẢ LỜI */}
             {replyMessage && (
               <View style={styles.replyPreviewBox}>
                 <View style={{ flex: 1, borderLeftWidth: 3, borderLeftColor: "#0d6efd", paddingLeft: 8 }}>
@@ -849,7 +716,6 @@ export default function ChatDetail() {
               </View>
             )}
 
-            {/* PREVIEW ẢNH/FILE */}
             {selectedFile && (
               <View style={{ padding: 10, backgroundColor: "#f9fafb", borderTopWidth: 1, borderColor: "#e5e7eb", flexDirection: "row", alignItems: "center" }}>
                 <View style={{ width: 40, height: 40, backgroundColor: "#e5e7eb", borderRadius: 8, justifyContent: "center", alignItems: "center", overflow: "hidden" }}>
@@ -872,6 +738,58 @@ export default function ChatDetail() {
         )}
 
       </KeyboardAvoidingView>
+
+      {/* 👉 MODAL GIAO DIỆN CHỌN NGƯỜI NHẬN CHUYỂN TIẾP TIN NHẮN */}
+      <Modal visible={showForwardModal} animationType="slide" transparent>
+        <View style={styles.bottomSheetOverlay}>
+          <View style={styles.bottomSheetContent}>
+            <View style={styles.sheetHeader}>
+              <TouchableOpacity onPress={() => setShowForwardModal(false)}>
+                <Text style={styles.cancelText}>Hủy</Text>
+              </TouchableOpacity>
+              <Text style={styles.sheetTitle}>Chuyển tiếp đến</Text>
+              <TouchableOpacity onPress={submitForwardMessage} disabled={isForwarding}>
+                {isForwarding ? (
+                  <ActivityIndicator size="small" color="#0d6efd" />
+                ) : (
+                  <Text style={[styles.confirmText, selectedForwardTargets.length > 0 && { color: "#0d6efd" }]}>
+                    Gửi ({selectedForwardTargets.length})
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            <FlatList
+              data={conversationsList}
+              keyExtractor={(item) => item._id}
+              contentContainerStyle={{ padding: 15 }}
+              renderItem={({ item }) => {
+                const isSelected = selectedForwardTargets.includes(item._id);
+                // Xử lý hiển thị thông tin nhóm hoặc chat riêng
+                const targetName = item.isGroup ? item.name : item.name;
+                const avatar = item.avatar || "https://i.pravatar.cc/100";
+
+                return (
+                  <TouchableOpacity style={styles.friendSelectItem} onPress={() => toggleForwardTarget(item._id)}>
+                    <Image source={{ uri: avatar }} style={styles.memberAvatar} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.memberName}>{targetName}</Text>
+                      {item.isGroup && <Text style={{ fontSize: 12, color: "gray" }}>Nhóm chat</Text>}
+                    </View>
+                    <Ionicons
+                      name={isSelected ? "checkmark-circle" : "ellipse-outline"}
+                      size={26}
+                      color={isSelected ? "#0d6efd" : "#ccc"}
+                    />
+                  </TouchableOpacity>
+                );
+              }}
+              ListEmptyComponent={<Text style={{ textAlign: "center", color: "#888", marginTop: 20 }}>Không có cuộc trò chuyện nào</Text>}
+            />
+          </View>
+        </View>
+      </Modal>
+
     </SafeAreaView>
   );
 }
@@ -881,21 +799,33 @@ const styles = StyleSheet.create({
   headerAvatar: { width: 38, height: 38, borderRadius: 19, marginRight: 10 },
   headerName: { color: "#111827", fontWeight: "700", fontSize: 17, flex: 1 },
   messageAvatar: { width: 30, height: 30, borderRadius: 15 },
-  inputContainer: { flexDirection: "row", alignItems: "flex-end", padding: 8, backgroundColor: "#ffffff", borderTopWidth: 0, borderColor: "#e5e7eb" }, // Bỏ viền trên vì đã gộp với ReplyBox
+  inputContainer: { flexDirection: "row", alignItems: "flex-end", padding: 8, backgroundColor: "#ffffff", borderTopWidth: 0, borderColor: "#e5e7eb" },
   textInput: { flex: 1, backgroundColor: "#f3f4f6", borderRadius: 20, paddingHorizontal: 15, paddingTop: 10, paddingBottom: 10, fontSize: 16, maxHeight: 100, marginLeft: 4, marginRight: 4 },
 
   reactionPopupWrapper: { marginBottom: 8, zIndex: 999, elevation: 5 },
   reactionPopup: { backgroundColor: '#ffffff', borderRadius: 30, paddingHorizontal: 8, paddingVertical: 6, flexDirection: 'row', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 5, elevation: 5 },
   reactionBadge: { position: 'absolute', bottom: -10, backgroundColor: '#ffffff', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 12, borderWidth: 1, borderColor: '#e5e7eb', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 1, elevation: 1 },
 
-  // 👉 CSS Nút chức năng (Ghim, Trả lời)
-  actionBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#4b5563', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 3, elevation: 4 },
+  actionBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#4b5563', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 3, elevation: 4, marginBottom: 4 },
   actionBtnText: { color: "#fff", marginLeft: 4, fontWeight: "600", fontSize: 13 },
 
   pinnedBar: { flexDirection: "row", alignItems: "center", backgroundColor: "#f0fdf4", paddingHorizontal: 15, paddingVertical: 10, borderBottomWidth: 1, borderColor: "#e5e7eb" },
   searchResultItem: { flexDirection: "row", paddingHorizontal: 15, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#f3f4f6" },
 
-  // 👉 CSS cho khu vực Reply
   replyPreviewBox: { flexDirection: "row", alignItems: "center", backgroundColor: "#f8fafc", paddingHorizontal: 12, paddingVertical: 10, borderTopWidth: 1, borderColor: "#e5e7eb" },
-  repliedBubble: { padding: 8, borderRadius: 8, marginBottom: 6, borderLeftWidth: 3, borderLeftColor: "rgba(255,255,255,0.5)" }
+  repliedBubble: { padding: 8, borderRadius: 8, marginBottom: 6, borderLeftWidth: 3, borderLeftColor: "rgba(255,255,255,0.5)" },
+
+  systemMsgContainer: { alignItems: 'center', marginVertical: 15 },
+  systemMsgText: { fontSize: 12, color: '#6b7280', backgroundColor: '#e5e7eb', paddingHorizontal: 16, paddingVertical: 6, borderRadius: 16, overflow: 'hidden', textAlign: 'center', maxWidth: '85%' },
+
+  // 👉 CSS DÀNH CHO MODAL CHUYỂN TIẾP
+  bottomSheetOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
+  bottomSheetContent: { backgroundColor: "#fff", borderTopLeftRadius: 15, borderTopRightRadius: 15, height: "70%" },
+  sheetHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 15, borderBottomWidth: 1, borderColor: "#eee" },
+  sheetTitle: { fontSize: 17, fontWeight: "bold", color: "#111" },
+  cancelText: { fontSize: 16, color: "#6b7280" },
+  confirmText: { fontSize: 16, color: "#9ca3af", fontWeight: "bold" },
+  friendSelectItem: { flexDirection: "row", alignItems: "center", marginBottom: 20 },
+  memberAvatar: { width: 46, height: 46, borderRadius: 23, marginRight: 12 },
+  memberName: { fontSize: 16, fontWeight: "500", color: "#111" },
 });
