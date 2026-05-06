@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import Sidebar from "../components/Sidebar";
 import ChatBox from "../components/Chatbox";
 import ChatGroupBox from "../components/ChatGroupBox";
@@ -316,6 +316,15 @@ export default function ChatPage() {
     };
   }, []);
 
+
+  const selectedRef = useRef(selected);
+
+  useEffect(() => {
+    selectedRef.current = selected;
+  }, [selected]);
+
+  const openingChatRef = useRef(null);
+
   useEffect(() => {
     const handleNewMessageGlobal = (message) => {
       if (!message?.conversationId) return;
@@ -350,7 +359,7 @@ export default function ChatPage() {
       });
 
       setUnreadMap((prev) => {
-        const currentSelectedId = selected?._id || selected?.conversationId;
+        const currentSelectedId = selectedRef.current?._id || selectedRef.current?.conversationId;
 
         const senderId =
           typeof message?.senderId === "object"
@@ -362,6 +371,10 @@ export default function ChatPage() {
         }
 
         if (String(currentSelectedId) === incomingConversationId) {
+          return prev;
+        }
+
+        if (String(openingChatRef.current) === incomingConversationId) {
           return prev;
         }
 
@@ -377,7 +390,7 @@ export default function ChatPage() {
     return () => {
       offNewMessageGlobal(handleNewMessageGlobal);
     };
-  }, [selected]);
+  }, []);
 
   useEffect(() => {
     const handleFriendRequestReceived = () => {
@@ -437,7 +450,21 @@ export default function ChatPage() {
           tab={tab}
           setTab={setTab} // 👉 THÊM prop setTab để Sidebar có thể điều hướng tự động
           contacts={contacts}
-          selected={selected}
+          setSelected={(chat) => {
+            openingChatRef.current = chat._id;
+
+            setSelected(chat);
+
+            setUnreadMap((prev) => ({
+              ...prev,
+              [chat._id]: 0,
+            }));
+
+            setTimeout(() => {
+              openingChatRef.current = null;
+            }, 500);
+          }}
+          setUnreadMap={setUnreadMap}
           friendSection={friendSection}
           setFriendSection={setFriendSection}
           hasNewFriendRequest={hasNewFriendRequest}
@@ -448,16 +475,6 @@ export default function ChatPage() {
           unreadMap={unreadMap}
           reloadTrigger={aiReloadTrigger}
           loadChats={loadChats}
-          setSelected={(c) => {
-            setSelected(c);
-            const id = c?._id || c?.conversationId;
-            if (id) {
-              setUnreadMap((prev) => ({
-                ...prev,
-                [id]: 0,
-              }));
-            }
-          }}
         />
 
         {/* 👉 ĐÃ SỬA LẠI ĐIỀU KIỆN RENDER GIAO DIỆN CHÍNH */}

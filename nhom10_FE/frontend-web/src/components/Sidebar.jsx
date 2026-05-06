@@ -260,7 +260,14 @@ export default function Sidebar({
                       backgroundColor: isActive ? "#f1f1f1" : "white",
                       borderRadius: "10px",
                     }}
-                    onClick={() => setSelected(chat)}
+                    onClick={() => {
+                      setSelected(chat);
+
+                      setUnreadMap((prev) => ({
+                        ...prev,
+                        [chat._id]: 0,
+                      }));
+                    }}
                   >
                     <img src={avatar} alt="" className="rounded-circle me-2" width="40" height="40" />
 

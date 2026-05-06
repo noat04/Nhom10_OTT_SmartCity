@@ -149,22 +149,33 @@ class ChatService {
             .lean();
 
         return conversations.map(c => {
+            // 👉 1. BƯỚC QUAN TRỌNG: Lọc bỏ ngay những member bị null (do user đã bị xóa khỏi DB)
+            const validMembers = c.members.filter(m => m.user != null);
+
+            // Gán lại mảng members sạch (không chứa null) để frontend không bị lỗi hiển thị
+            c.members = validMembers;
 
             // ================= PRIVATE CHAT =================
             if (c.type === 'private') {
-                const partner = c.members.find(
-                    m => m.user._id.toString() !== userId.toString()
+                // 👉 2. Dùng Optional Chaining (?.) để tìm partner an toàn tuyệt đối
+                const partner = validMembers.find(
+                    m => m.user?._id?.toString() !== userId.toString()
                 )?.user;
 
                 if (partner) {
                     c.name = partner.fullName;
                     c.avatar = partner.avatar;
+                } else {
+                    // 👉 3. Fallback: Nếu partner đã bị xóa tài khoản hoàn toàn
+                    c.name = "Người dùng đã xóa";
+                    c.avatar = "https://i.pravatar.cc/150";
                 }
             }
 
             // ================= GROUP CHAT =================
             if (c.type === 'group') {
-                c.memberCount = c.members.length;
+                // Đếm số lượng thành viên dựa trên danh sách hợp lệ
+                c.memberCount = validMembers.length;
             }
 
             return c;

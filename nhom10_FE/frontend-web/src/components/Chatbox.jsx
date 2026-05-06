@@ -57,7 +57,11 @@ export default function ChatBox({
   const bottomRef = useRef(null);
   const myId = localStorage.getItem("userId");
   const conversationId = selected?.conversationId || selected?._id;
+  const selectedChatRef = useRef(selected);
 
+  useEffect(() => {
+    selectedChatRef.current = selected;
+  }, [selected]);
   //CALL
   const [incomingCallDataGlobal, setIncomingCallDataGlobal] = useState(null);
   const [activeSocket, setActiveSocket] = useState(null);
@@ -84,6 +88,7 @@ export default function ChatBox({
   const isFirstLoad = useRef(true);
   const [onlineUsers, setOnlineUsers] = useState({});
 
+  const seenLockRef = useRef(false);
 
   const emojiMap = {
     like: "👍",
@@ -163,6 +168,162 @@ export default function ChatBox({
   // 2. LOCAL SOCKET: LẮNG NGHE TIN NHẮN (Khi đổi Chat)
   // ====================================================
 
+  // useEffect(() => {
+  //   const socket = getSocket();
+  //   if (!socket || !selected?._id || tab !== "chat") return;
+
+  //   loadMessages();
+
+  //   const roomId = selected?.conversationId || selected?._id;
+  //   socket.emit("joinConversation", roomId);
+
+  //   const handleNewMessage = (msg) => {
+  //     // 👉 THÊM DÒNG NÀY ĐỂ DEBUG:
+  //     console.log("🔥 SOCKET VỪA BẮT ĐƯỢC TIN NHẮN MỚI:", msg);
+  //     const currentConversationId = selected?.conversationId || selected?._id;
+
+  //     // ❗ nếu KHÔNG phải chat đang mở
+  //     if (String(msg.conversationId) !== String(currentConversationId)) {
+  //       return;
+  //     }
+
+  //     // 🔥 AUTO SEEN nếu đang ở dưới cùng
+  //     if (isAtBottomRef.current) {
+  //       emitSeen();
+  //     }
+
+  //     // 👉 nếu đang mở chat thì xử lý như cũ
+  //     let shouldScroll = false;
+
+  //     setMessages((prev) => {
+  //       const exists = prev.some((m) => m._id === msg._id);
+  //       if (exists) return prev;
+
+  //       shouldScroll = isAtBottomRef.current;
+
+  //       return [...prev, msg].sort(
+  //         (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
+  //       );
+  //     });
+
+  //     if (shouldScroll) {
+  //       requestAnimationFrame(() => {
+  //         bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  //       });
+  //     }
+  //   };
+
+  //   const handleSeen = ({ conversationId, seenMessages }) => {
+  //     const currentConversationId = selected?.conversationId || selected?._id;
+
+  //     if (String(conversationId) !== String(currentConversationId)) return;
+
+  //     if (!Array.isArray(seenMessages)) return;
+
+  //     const seenIds = new Set(seenMessages.map((m) => String(m._id)));
+
+  //     setMessages((prev) =>
+  //       prev.map((msg) => {
+  //         const senderId =
+  //           typeof msg.senderId === "object"
+  //             ? msg.senderId._id
+  //             : msg.senderId;
+
+  //         // chỉ message của mình + nằm trong list backend xác nhận seen
+  //         if (String(senderId) === String(myId) && seenIds.has(String(msg._id))) {
+  //           return {
+  //             ...msg,
+  //             status: "seen",
+  //             seenBy: msg.seenBy || []
+  //           };
+  //         }
+
+  //         return msg;
+  //       })
+  //     );
+  //   };
+
+  //   const handleEdited = (msg) => {
+  //     setMessages((prev) =>
+  //       prev.map((m) => {
+  //         // update message chính
+  //         if (m._id === msg._id) {
+  //           return {
+  //             ...m,
+  //             ...msg,
+  //           };
+  //         }
+
+  //         // 🔥 FIX CHUẨN: giữ lại cấu trúc replyTo
+  //         if (m.replyTo?._id === msg._id) {
+  //           return {
+  //             ...m,
+  //             replyTo: {
+  //               ...m.replyTo,   // giữ senderId, fullName
+  //               content: msg.content,
+  //               isEdited: msg.isEdited,
+  //             },
+  //           };
+  //         }
+
+  //         return m;
+  //       })
+  //     );
+  //   };
+
+  //   const handleDeleted = (msg) => {
+  //     setMessages((prev) =>
+  //       prev.map((m) => (m._id === msg._id ? msg : m))
+  //     );
+  //   };
+
+
+  //   socket.on("newMessage", handleNewMessage);
+  //   socket.on("message_seen", handleSeen);
+  //   socket.on("message_edited", handleEdited);
+  //   socket.on("message_deleted", handleDeleted);
+
+  //   socket.on("message_reaction", (msg) => {
+  //     setMessages((prev) =>
+  //       prev.map((m) =>
+  //         m._id === msg._id ? msg : m
+  //       )
+  //     );
+  //   });
+
+  //   // <<<<<<< HEAD
+  //   //     socket.on("message_pinned", (data) => {
+  //   //       setPinnedMessages(data.pinnedMessages || []);
+  //   //     });
+  //   // =======
+  //   const handlePinnedRealtime = (data) => {
+  //     const pins = normalizePinnedMessages(data?.pinnedMessages || []);
+
+  //     if (pins.length > 0 || data?.pinnedMessages?.length === 0) {
+  //       setPinnedMessages(pins);
+  //     }
+  //   };
+
+  //   socket.on("message_pinned", handlePinnedRealtime);
+  //   // >>>>>>> origin/dam
+
+  //   return () => {
+  //     socket.emit(
+  //       "leaveConversation",
+  //       selected?.conversationId || selected?._id
+  //     );
+  //     socket.off("newMessage", handleNewMessage);
+  //     socket.off("message_seen", handleSeen);
+  //     socket.off("message_edited", handleEdited);
+  //     socket.off("message_deleted", handleDeleted);
+  //     // <<<<<<< HEAD
+  //     //       socket.off("message_pinned");
+  //     // =======
+  //     socket.off("message_pinned", handlePinnedRealtime);
+  //     // >>>>>>> origin/dam
+  //   };
+  // }, [selected, tab]);
+
   useEffect(() => {
     const socket = getSocket();
     if (!socket || !selected?._id || tab !== "chat") return;
@@ -172,26 +333,30 @@ export default function ChatBox({
     const roomId = selected?.conversationId || selected?._id;
     socket.emit("joinConversation", roomId);
 
+    return () => {
+      socket.emit("leaveConversation", roomId);
+    };
+  }, [selected, tab]);
+
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+
+    // ================= NEW MESSAGE =================
     const handleNewMessage = (msg) => {
-      // 👉 THÊM DÒNG NÀY ĐỂ DEBUG:
-      console.log("🔥 SOCKET VỪA BẮT ĐƯỢC TIN NHẮN MỚI:", msg);
-      const currentConversationId = selected?.conversationId || selected?._id;
+      const currentConversationId =
+        selectedChatRef.current?.conversationId || selectedChatRef.current?._id;
 
-      // ❗ nếu KHÔNG phải chat đang mở
-      if (String(msg.conversationId) !== String(currentConversationId)) {
-        return;
-      }
+      if (String(msg.conversationId) !== String(currentConversationId)) return;
 
-      // 🔥 AUTO SEEN nếu đang ở dưới cùng
-      if (isAtBottomRef.current) {
-        emitSeen();
-      }
+      if (isAtBottomRef.current) emitSeen();
 
-      // 👉 nếu đang mở chat thì xử lý như cũ
       let shouldScroll = false;
 
       setMessages((prev) => {
-        const exists = prev.some((m) => m._id === msg._id);
+
+        const exists = prev.some((m) => String(m._id) === String(msg._id));
+
         if (exists) return prev;
 
         shouldScroll = isAtBottomRef.current;
@@ -208,11 +373,12 @@ export default function ChatBox({
       }
     };
 
+    // ================= MESSAGE SEEN =================
     const handleSeen = ({ conversationId, seenMessages }) => {
-      const currentConversationId = selected?.conversationId || selected?._id;
+      const currentConversationId =
+        selectedChatRef.current?.conversationId || selectedChatRef.current?._id;
 
       if (String(conversationId) !== String(currentConversationId)) return;
-
       if (!Array.isArray(seenMessages)) return;
 
       const seenIds = new Set(seenMessages.map((m) => String(m._id)));
@@ -220,16 +386,12 @@ export default function ChatBox({
       setMessages((prev) =>
         prev.map((msg) => {
           const senderId =
-            typeof msg.senderId === "object"
-              ? msg.senderId._id
-              : msg.senderId;
+            typeof msg.senderId === "object" ? msg.senderId._id : msg.senderId;
 
-          // chỉ message của mình + nằm trong list backend xác nhận seen
           if (String(senderId) === String(myId) && seenIds.has(String(msg._id))) {
             return {
               ...msg,
               status: "seen",
-              seenBy: msg.seenBy || []
             };
           }
 
@@ -238,10 +400,10 @@ export default function ChatBox({
       );
     };
 
+    // ================= MESSAGE EDITED =================
     const handleEdited = (msg) => {
       setMessages((prev) =>
         prev.map((m) => {
-          // update message chính
           if (m._id === msg._id) {
             return {
               ...m,
@@ -249,12 +411,11 @@ export default function ChatBox({
             };
           }
 
-          // 🔥 FIX CHUẨN: giữ lại cấu trúc replyTo
           if (m.replyTo?._id === msg._id) {
             return {
               ...m,
               replyTo: {
-                ...m.replyTo,   // giữ senderId, fullName
+                ...m.replyTo,
                 content: msg.content,
                 isEdited: msg.isEdited,
               },
@@ -266,59 +427,71 @@ export default function ChatBox({
       );
     };
 
+    // ================= MESSAGE DELETED =================
     const handleDeleted = (msg) => {
       setMessages((prev) =>
-        prev.map((m) => (m._id === msg._id ? msg : m))
+        prev.map((m) => {
+          if (m._id === msg._id) {
+            return {
+              ...m,
+              ...msg,
+            };
+          }
+
+          if (m.replyTo?._id === msg._id) {
+            return {
+              ...m,
+              replyTo: {
+                ...m.replyTo,
+                content: "Tin nhắn đã bị xóa",
+                isDeleted: true,
+              },
+            };
+          }
+
+          return m;
+        })
       );
     };
 
-
-    socket.on("newMessage", handleNewMessage);
-    socket.on("message_seen", handleSeen);
-    socket.on("message_edited", handleEdited);
-    socket.on("message_deleted", handleDeleted);
-
-    socket.on("message_reaction", (msg) => {
+    // ================= MESSAGE REACTION =================
+    const handleReactionRealtime = (msg) => {
       setMessages((prev) =>
         prev.map((m) =>
           m._id === msg._id ? msg : m
         )
       );
-    });
-
-    // <<<<<<< HEAD
-    //     socket.on("message_pinned", (data) => {
-    //       setPinnedMessages(data.pinnedMessages || []);
-    //     });
-    // =======
-    const handlePinnedRealtime = (data) => {
-      const pins = normalizePinnedMessages(data?.pinnedMessages || []);
-
-      if (pins.length > 0 || data?.pinnedMessages?.length === 0) {
-        setPinnedMessages(pins);
-      }
     };
 
-    socket.on("message_pinned", handlePinnedRealtime);
-    // >>>>>>> origin/dam
+    // ================= MESSAGE PINNED =================
+    const handlePinnedRealtime = (data) => {
+      const currentConversationId =
+        selectedChatRef.current?.conversationId || selectedChatRef.current?._id;
 
+      if (String(data.conversationId) !== String(currentConversationId)) return;
+
+      const pins = normalizePinnedMessages(data?.pinnedMessages || []);
+      setPinnedMessages(pins);
+    };
+
+    // ================= ON =================
+    socket.on("newMessage", handleNewMessage);
+    socket.on("message_seen", handleSeen);
+    socket.on("message_edited", handleEdited);
+    socket.on("message_deleted", handleDeleted);
+    socket.on("message_reaction", handleReactionRealtime);
+    socket.on("message_pinned", handlePinnedRealtime);
+
+    // ================= OFF =================
     return () => {
-      socket.emit(
-        "leaveConversation",
-        selected?.conversationId || selected?._id
-      );
       socket.off("newMessage", handleNewMessage);
       socket.off("message_seen", handleSeen);
       socket.off("message_edited", handleEdited);
       socket.off("message_deleted", handleDeleted);
-      // <<<<<<< HEAD
-      //       socket.off("message_pinned");
-      // =======
+      socket.off("message_reaction", handleReactionRealtime);
       socket.off("message_pinned", handlePinnedRealtime);
-      // >>>>>>> origin/dam
     };
-  }, [selected, tab]);
-
+  }, []);
 
   // ================= SEARCH (🔥 MOVE HERE) =================
   useEffect(() => {
@@ -409,9 +582,9 @@ export default function ChatBox({
     setCursor(null);
     setHasMore(true);
 
-    setTimeout(() => {
-      emitSeen();
-    }, 200);
+    // setTimeout(() => {
+    //   emitSeen();
+    // }, 200);
     const res = await getMessages(conversationId);
 
     if (res.success) {
@@ -667,13 +840,19 @@ export default function ChatBox({
 
   const emitSeen = () => {
     const socket = getSocket();
-
-    // ❗ CHẶN
     if (!socket || !selected?._id || !myId) return;
+
+    if (seenLockRef.current) return;
+
+    seenLockRef.current = true;
 
     socket.emit("seen", {
       conversationId: selected?.conversationId || selected?._id
     });
+
+    setTimeout(() => {
+      seenLockRef.current = false;
+    }, 800);
   };
 
   useEffect(() => {
@@ -706,71 +885,13 @@ export default function ChatBox({
     return fileUrl;
   };
 
-  useEffect(() => {
-    if (!selected?._id) return;
+  // useEffect(() => {
+  //   if (!selected?._id) return;
 
-    setUnreadMap(prev => ({
-      ...prev,
-      [selected._id]: 0
-    }));
-  }, [selected]);
-
-  // <<<<<<< HEAD
-
-  // =======
-  useEffect(() => {
-    const socket = getSocket();
-    if (!socket) return;
-
-    const handleGlobalMessage = (msg) => {
-      // 🔥 ID của chat đang mở
-      const currentConversationId =
-        selected?.conversationId || selected?._id;
-
-      const currentId =
-        typeof currentConversationId === "object"
-          ? currentConversationId._id
-          : currentConversationId;
-
-      // 🔥 ID của message nhận được
-      const msgConvId =
-        typeof msg.conversationId === "object"
-          ? msg.conversationId._id
-          : msg.conversationId;
-
-      // 🔥 LUÔN update latestMessage (QUAN TRỌNG)
-      if (typeof window.updateLastMessage === "function") {
-        window.updateLastMessage(msg);
-      }
-
-      // 👉 chỉ tăng unread nếu KHÔNG phải chat đang mở
-      if (String(msgConvId) !== String(currentId)) {
-        setUnreadMap((prev) => ({
-          ...prev,
-          [msgConvId]: (prev[msgConvId] || 0) + 1
-        }));
-      }
-
-      // ✅ tăng unread đúng ID
-      // setUnreadMap((prev) => ({
-      //   ...prev,
-      //   [msgConvId]: (prev[msgConvId] || 0) + 1
-      // }));
-    };
-
-    socket.on("newMessage_global", handleGlobalMessage);
-
-    return () => socket.off("newMessage_global", handleGlobalMessage);
-  }, [selected]);
-  // >>>>>>> origin/dam
-
-  useEffect(() => {
-    if (!selected?._id) return;
-
-    setTimeout(() => {
-      emitSeen();
-    }, 300);
-  }, [selected]);
+  //   setTimeout(() => {
+  //     emitSeen();
+  //   }, 300);
+  // }, [selected]);
 
   useEffect(() => {
     const socket = getSocket();
@@ -818,6 +939,7 @@ export default function ChatBox({
     socket.on("online_list", handleOnlineList);
     socket.on("user_online", handleUserOnline);
     socket.on("user_offline", handleUserOffline);
+    socket.emit("get_online_users");
 
     return () => {
       socket.off("online_list", handleOnlineList);
@@ -891,11 +1013,26 @@ export default function ChatBox({
       replyTo: replyMessage?._id,
     });
 
+
+
+    if (res.success && res.data) {
+      setMessages((prev) => {
+        const exists = prev.some((m) => m._id === res.data._id);
+        if (exists) return prev;
+
+        return [...prev, res.data].sort(
+          (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
+        );
+      });
+    }
+
     setMessage("");
     setFile(null);
     setReplyMessage(null);
 
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    });
   };
 
   // ================= REACTION =================
@@ -1031,6 +1168,14 @@ export default function ChatBox({
       console.error("❌ PIN ERROR:", err.response?.data || err.message);
     }
   };
+
+  const lastMyMessageId = [...messages]
+    .reverse()
+    .find((msg) => {
+      const sender =
+        typeof msg.senderId === "object" ? msg.senderId._id : msg.senderId;
+      return String(sender) === String(myId);
+  })?._id;
 
   const renderMessage = (m, index) => {
     const senderId =
@@ -1456,7 +1601,7 @@ export default function ChatBox({
           </div>
 
           {/* ================= SEEN ================= */}
-          {isMe && (
+          {isMe && m._id === lastMyMessageId && (
             <div style={{ fontSize: 11, color: "#888" }}>
               {m.status === "seen" ? "Đã xem" : "Đã gửi"}
             </div>
@@ -1679,6 +1824,20 @@ export default function ChatBox({
 
   console.log("👉 partnerId:", partnerId);
 
+  const partnerOnline =
+    onlineUsers[String(partnerId)] ??
+    (
+      selected?.members?.find(
+        (m) => String(m?.user?._id || m?._id) === String(partnerId)
+      )?.user?.status === "online"
+    );
+
+  const partnerLastSeen =
+    onlineUsers[`lastSeen_${partnerId}`] ||
+    selected?.members?.find(
+      (m) => String(m?.user?._id || m?._id) === String(partnerId)
+    )?.user?.lastSeen;
+
   return (
     <div className="col d-flex flex-column h-100">
 
@@ -1876,7 +2035,7 @@ export default function ChatBox({
       <div
         className="flex-grow-1 p-3 bg-light overflow-auto"
         ref={containerRef}
-        onClick={emitSeen}
+        // onClick={emitSeen}
         onScroll={(e) => {
           // <<<<<<< HEAD
           //           emitSeen();
@@ -1980,7 +2139,7 @@ export default function ChatBox({
           <div className="d-flex align-items-center bg-light rounded-pill px-3 py-1 flex-grow-1 border">
             <input
               value={message}
-              onFocus={emitSeen}
+              // onFocus={emitSeen}
               onChange={(e) => setMessage(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") sendMessage();

@@ -153,7 +153,10 @@ module.exports = {
                     isTyping: data.isTyping
                 });
             });
-
+            socket.on("get_online_users", () => {
+                socket.emit("online_list", Array.from(onlineUsers.keys()));
+            });
+            
             // 5. GỬI TIN NHẮN TRỰC TIẾP QUA SOCKET
             socket.on('send_message', async (data) => {
                 try {
@@ -166,7 +169,7 @@ module.exports = {
                     const conv = await Conversation.findById(data.conversationId);
 
                     conv.members.forEach(m => {
-                        io.to(m.user.toString()).emit("newMessage_global", savedMessage);
+                        io.to(m.user.toString()).emit("newMessage_global", {...savedMessage._doc,__forUser: m.user.toString()});
                     });
 
                 } catch (error) {
@@ -192,13 +195,6 @@ module.exports = {
             // >>>>>>> origin/dam
             socket.on("seen", async ({ conversationId }) => {
                 try {
-                    await chatService.markAsSeen(conversationId, userId);
-
-                    // <<<<<<< HEAD
-                    //                     io.to(conversationId.toString()).emit("message_seen", {
-                    //                         conversationId,
-                    //                         userId
-                    // =======
                     const seenMessages = await chatService.markAsSeen(conversationId, userId);
 
                     io.to(conversationId.toString()).emit("message_seen", {
