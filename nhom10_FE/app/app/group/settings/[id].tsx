@@ -236,12 +236,40 @@ export default function GroupSettingsScreen() {
         setFriendsList(availableFriends);
     };
 
+    // const handleSubmitAddMembers = async () => {
+    //     if (selectedFriendIds.length === 0) return Alert.alert("Thông báo", "Vui lòng chọn ít nhất 1 người");
+    //     const res = await addGroupMembersAPI({ conversationId, memberIds: selectedFriendIds });
+    //     if (res?.success) {
+    //         setShowAddMemberModal(false);
+    //         if (res.data) { setGroupInfo(res.data); setMembers(res.data.members || []); }
+    //     } else {
+    //         Alert.alert("Lỗi", res?.message || "Không thể thêm thành viên");
+    //     }
+    // };
     const handleSubmitAddMembers = async () => {
-        if (selectedFriendIds.length === 0) return Alert.alert("Thông báo", "Vui lòng chọn ít nhất 1 người");
-        const res = await addGroupMembersAPI({ conversationId, newMemberIds: selectedFriendIds });
+        if (selectedFriendIds.length === 0) {
+            return Alert.alert("Thông báo", "Vui lòng chọn ít nhất 1 người");
+        }
+
+        // 👉 SỬA LẠI TÊN BIẾN TẠI ĐÂY: newMemberIds -> memberIds 
+        // (Hoặc sửa cho đúng với tham số mà Backend của bạn yêu cầu)
+        const res = await addGroupMembersAPI({
+            conversationId,
+            memberIds: selectedFriendIds
+        });
+
         if (res?.success) {
             setShowAddMemberModal(false);
-            if (res.data) { setGroupInfo(res.data); setMembers(res.data.members || []); }
+            Alert.alert("Thành công", "Đã thêm thành viên vào nhóm!");
+
+            // Cập nhật lại giao diện ngay lập tức
+            if (res.data) {
+                setGroupInfo(res.data);
+                setMembers(res.data.members || []);
+            }
+
+            // Tải lại dữ liệu để đồng bộ hoàn toàn
+            loadData(false);
         } else {
             Alert.alert("Lỗi", res?.message || "Không thể thêm thành viên");
         }
