@@ -30,6 +30,7 @@ router.get('/message/search', chatController.searchMessages);
 
 router.post('/message/pin', chatController.pinMessage);
 router.get('/message/pinned/:conversationId', chatController.getPinnedMessages);
+router.post('/message/forward', chatController.forwardMessage);
 
 // ======================================
 // GROUP CHAT APIs

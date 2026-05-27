@@ -160,7 +160,9 @@ export default function Profile() {
       {/* HEADER */}
       <View style={styles.header}>
         <View style={styles.topBar}>
-          <Ionicons name="arrow-back" size={22} color="white" />
+          <TouchableOpacity onPress={() => router.back()} style={{ padding: 5, marginRight: 5 }}>
+            <Ionicons name="chevron-back" size={26} color="white" />
+          </TouchableOpacity>
         </View>
       </View>
 

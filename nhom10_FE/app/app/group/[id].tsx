@@ -9,6 +9,7 @@ import {
     Image,
     KeyboardAvoidingView,
     Linking,
+    Modal,
     Platform,
     StyleSheet,
     Text,
@@ -24,6 +25,9 @@ import * as ImagePicker from "expo-image-picker";
 import {
     deleteMessageAPI,
     editMessageAPI,
+    // 👉 IMPORT THÊM 2 HÀM NÀY
+    forwardMessageAPI,
+    getConversationsAPI,
     getGroupInfoAPI,
     getMessagesAPI,
     getPinnedMessagesAPI,
@@ -90,6 +94,13 @@ export default function GroupChatDetail() {
 
     const [replyMessage, setReplyMessage] = useState<Message | null>(null);
     const [editingMessage, setEditingMessage] = useState<Message | null>(null);
+
+    // 👉 THÊM STATE QUẢN LÝ CHUYỂN TIẾP (FORWARD)
+    const [showForwardModal, setShowForwardModal] = useState(false);
+    const [messageToForward, setMessageToForward] = useState<Message | null>(null);
+    const [conversationsList, setConversationsList] = useState<any[]>([]);
+    const [selectedForwardTargets, setSelectedForwardTargets] = useState<string[]>([]);
+    const [isForwarding, setIsForwarding] = useState(false);
 
     useEffect(() => {
         const map: any = {};
@@ -230,12 +241,6 @@ export default function GroupChatDetail() {
             );
         };
 
-        const handleGroupInfoUpdated = () => {
-            getGroupInfoAPI(conversationId).then(res => {
-                if (res.success) setGroupInfo(res.data);
-            });
-        };
-
         socket.on("newMessage", handleNewMessage);
         socket.on("message_reaction", handleReaction);
         socket.on("message_seen", handleSeen);
@@ -243,7 +248,6 @@ export default function GroupChatDetail() {
         socket.on("message_pinned", handleMessagePinned);
         socket.on("message_edited", handleEdit);
         socket.on("message_deleted", handleDelete);
-        socket.on("group_info_updated", handleGroupInfoUpdated);
 
         return () => {
             socket.emit("leaveConversation", conversationId);
@@ -254,11 +258,50 @@ export default function GroupChatDetail() {
             socket.off("message_pinned", handleMessagePinned);
             socket.off("message_edited", handleEdit);
             socket.off("message_deleted", handleDelete);
-            socket.off("group_info_updated", handleGroupInfoUpdated);
         };
     }, [conversationId, myId]);
 
-    // ================= ACTIONS =================
+    // ================= CHUYỂN TIẾP TIN NHẮN (FORWARD) =================
+    const handleOpenForwardModal = async (msg: Message) => {
+        setMessageToForward(msg);
+        setActiveReactionId(null); // Đóng menu
+        const res = await getConversationsAPI();
+        if (res?.success) {
+            setConversationsList(res.data);
+            setSelectedForwardTargets([]);
+            setShowForwardModal(true);
+        } else {
+            Alert.alert("Lỗi", "Không thể tải danh sách cuộc trò chuyện");
+        }
+    };
+
+    const toggleForwardTarget = (convId: string) => {
+        setSelectedForwardTargets(prev =>
+            prev.includes(convId) ? prev.filter(id => id !== convId) : [...prev, convId]
+        );
+    };
+
+    const submitForwardMessage = async () => {
+        if (selectedForwardTargets.length === 0) return Alert.alert("Thông báo", "Vui lòng chọn người nhận!");
+        if (!messageToForward) return;
+
+        setIsForwarding(true);
+        const res = await forwardMessageAPI({
+            originalMessageId: messageToForward._id,
+            targetConversationIds: selectedForwardTargets
+        });
+        setIsForwarding(false);
+
+        if (res?.success) {
+            setShowForwardModal(false);
+            setMessageToForward(null);
+            Alert.alert("Thành công", "Đã chuyển tiếp tin nhắn!");
+        } else {
+            Alert.alert("Lỗi", res?.message || "Chuyển tiếp thất bại");
+        }
+    };
+
+    // ================= ACTIONS CƠ BẢN =================
     const handleEditMessage = async (msg: Message) => {
         setActiveReactionId(null);
         setEditingMessage(msg);
@@ -418,18 +461,10 @@ export default function GroupChatDetail() {
         if (item.isDeleted) return <Text style={{ color: "#888", fontStyle: 'italic' }}>Tin nhắn đã thu hồi</Text>;
         switch (item.type) {
             case "image":
-                // Lọc rỗng: Nếu fileUrl bị rỗng thì lấy ảnh Placeholder mặc định
-                const safeImgUrl = (item.fileUrl && String(item.fileUrl).trim() !== "")
-                    ? item.fileUrl
-                    : "https://developers.elementor.com/docs/assets/img/elementor-placeholder-image.png";
-
+                const safeImgUrl = (item.fileUrl && String(item.fileUrl).trim() !== "") ? item.fileUrl : "https://developers.elementor.com/docs/assets/img/elementor-placeholder-image.png";
                 return (
                     <TouchableOpacity onPress={() => handleOpenFile(safeImgUrl)}>
-                        <Image
-                            source={{ uri: safeImgUrl }}
-                            style={{ width: 220, height: 300, borderRadius: 12, backgroundColor: '#f0f0f0' }}
-                            resizeMode="cover"
-                        />
+                        <Image source={{ uri: safeImgUrl }} style={{ width: 220, height: 300, borderRadius: 12, backgroundColor: '#f0f0f0' }} resizeMode="cover" />
                     </TouchableOpacity>
                 );
             case "video": return <TouchableOpacity onPress={() => handleOpenFile(item.fileUrl)} style={{ width: 200, height: 150, backgroundColor: '#000', borderRadius: 8, justifyContent: 'center', alignItems: 'center' }}><Ionicons name="play-circle" size={50} color="rgba(255,255,255,0.8)" /><Text style={{ color: '#fff', fontSize: 12, marginTop: 5 }}>Video</Text></TouchableOpacity>;
@@ -475,8 +510,7 @@ export default function GroupChatDetail() {
                                     <Ionicons name="search" size={24} color="#0d6efd" />
                                 </TouchableOpacity>
 
-                                {/* 👉 NÚT CÀI ĐẶT NHÓM THAY CHO NÚT GỌI ĐIỆN */}
-                                <TouchableOpacity onPress={() => alert("Mở màn hình cài đặt nhóm")}>
+                                <TouchableOpacity onPress={() => router.push(`/group/settings/${conversationId}` as any)} style={{ padding: 5 }}>
                                     <Ionicons name="information-circle-outline" size={28} color="#0d6efd" />
                                 </TouchableOpacity>
                             </View>
@@ -510,12 +544,8 @@ export default function GroupChatDetail() {
                                 contentContainerStyle={{ paddingBottom: 20 }}
                                 renderItem={({ item }) => {
                                     const senderName = typeof item.senderId === "object" ? item.senderId.fullName : "Người dùng";
-
-                                    // 👉 SỬA AVATAR TÌM KIẾM TẠI ĐÂY
                                     const rawAvatarUrl = typeof item.senderId === "object" ? item.senderId.avatar : null;
-                                    const avatarUrl = (rawAvatarUrl && String(rawAvatarUrl).trim() !== "")
-                                        ? rawAvatarUrl
-                                        : "https://i.pravatar.cc/150";
+                                    const avatarUrl = (rawAvatarUrl && String(rawAvatarUrl).trim() !== "") ? rawAvatarUrl : "https://i.pravatar.cc/150";
 
                                     return (
                                         <TouchableOpacity
@@ -552,12 +582,8 @@ export default function GroupChatDetail() {
                         renderItem={({ item }) => {
                             const senderId = typeof item.senderId === "object" ? item.senderId._id : item.senderId;
                             const senderName = typeof item.senderId === "object" ? item.senderId.fullName : "Thành viên";
-
-                            // 👉 SỬA AVATAR BONG BÓNG CHAT TẠI ĐÂY
                             const rawSenderAvatar = typeof item.senderId === "object" ? item.senderId.avatar : null;
-                            const senderAvatar = (rawSenderAvatar && String(rawSenderAvatar).trim() !== "")
-                                ? rawSenderAvatar
-                                : "https://i.pravatar.cc/150";
+                            const senderAvatar = (rawSenderAvatar && String(rawSenderAvatar).trim() !== "") ? rawSenderAvatar : "https://i.pravatar.cc/150";
 
                             const isMe = String(senderId) === String(myId);
                             const isReactionActive = activeReactionId === item._id;
@@ -587,10 +613,17 @@ export default function GroupChatDetail() {
                                                 ))}
                                             </View>
 
-                                            <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                                            {/* 👉 BỔ SUNG FLEXWRAP CHỐNG TRÀN VÀ NÚT CHUYỂN TIẾP */}
+                                            <View style={{ flexDirection: 'row', gap: 8, marginTop: 8, flexWrap: "wrap", justifyContent: isMe ? "flex-end" : "flex-start" }}>
                                                 <TouchableOpacity style={styles.actionBtn} onPress={() => handleReplyMessage(item)}>
                                                     <Ionicons name="arrow-undo" size={16} color="#fff" />
                                                     <Text style={styles.actionBtnText}>Trả lời</Text>
+                                                </TouchableOpacity>
+
+                                                {/* 👉 NÚT CHUYỂN TIẾP MỚI */}
+                                                <TouchableOpacity style={styles.actionBtn} onPress={() => handleOpenForwardModal(item)}>
+                                                    <Ionicons name="arrow-forward" size={16} color="#fff" />
+                                                    <Text style={styles.actionBtnText}>Chuyển tiếp</Text>
                                                 </TouchableOpacity>
 
                                                 <TouchableOpacity style={styles.actionBtn} onPress={() => handleTogglePin(item._id)}>
@@ -619,8 +652,6 @@ export default function GroupChatDetail() {
                                         {!isMe && <Image source={{ uri: senderAvatar }} style={styles.messageAvatar} />}
 
                                         <View style={{ position: 'relative', marginLeft: isMe ? 0 : 8, marginRight: isMe ? 8 : 0, maxWidth: "75%" }}>
-
-                                            {/* 👉 HIỂN THỊ TÊN NGƯỜI GỬI NẾU KHÔNG PHẢI LÀ MÌNH */}
                                             {!isMe && (
                                                 <Text style={{ fontSize: 11, color: '#6b7280', marginBottom: 2, marginLeft: 4 }}>
                                                     {senderName}
@@ -640,7 +671,7 @@ export default function GroupChatDetail() {
                                                 }}
                                             >
                                                 {item.replyTo && (
-                                                    <TouchableOpacity activeOpacity={0.8} onPress={() => scrollToMessage(item.replyTo._id)}>
+                                                    <TouchableOpacity activeOpacity={0.8} onPress={() => scrollToMessage(item.replyTo!._id)}>
                                                         <View style={[styles.repliedBubble, { backgroundColor: isMe ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.05)" }]}>
                                                             <Text style={{ fontWeight: "bold", fontSize: 12, color: isMe ? "#fff" : "#111" }}>
                                                                 <Ionicons name="arrow-undo" size={12} /> {item.replyTo?.senderId?.fullName || "Người dùng"}
@@ -714,6 +745,57 @@ export default function GroupChatDetail() {
                 )}
 
             </KeyboardAvoidingView>
+
+            {/* 👉 MODAL CHỌN DANH SÁCH BẠN BÈ / NHÓM ĐỂ CHUYỂN TIẾP TIN NHẮN */}
+            <Modal visible={showForwardModal} animationType="slide" transparent>
+                <View style={styles.bottomSheetOverlay}>
+                    <View style={styles.bottomSheetContent}>
+                        <View style={styles.sheetHeader}>
+                            <TouchableOpacity onPress={() => setShowForwardModal(false)}>
+                                <Text style={styles.cancelText}>Hủy</Text>
+                            </TouchableOpacity>
+                            <Text style={styles.sheetTitle}>Chuyển tiếp đến</Text>
+                            <TouchableOpacity onPress={submitForwardMessage} disabled={isForwarding}>
+                                {isForwarding ? (
+                                    <ActivityIndicator size="small" color="#0d6efd" />
+                                ) : (
+                                    <Text style={[styles.confirmText, selectedForwardTargets.length > 0 && { color: "#0d6efd" }]}>
+                                        Gửi ({selectedForwardTargets.length})
+                                    </Text>
+                                )}
+                            </TouchableOpacity>
+                        </View>
+
+                        <FlatList
+                            data={conversationsList}
+                            keyExtractor={(item) => item._id}
+                            contentContainerStyle={{ padding: 15 }}
+                            renderItem={({ item }) => {
+                                const isSelected = selectedForwardTargets.includes(item._id);
+                                const targetName = item.name;
+                                const avatar = item.avatar || "https://i.pravatar.cc/100";
+
+                                return (
+                                    <TouchableOpacity style={styles.friendSelectItem} onPress={() => toggleForwardTarget(item._id)}>
+                                        <Image source={{ uri: avatar }} style={styles.memberAvatar} />
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={styles.memberName}>{targetName}</Text>
+                                            {item.isGroup && <Text style={{ fontSize: 12, color: "gray" }}>Nhóm chat</Text>}
+                                        </View>
+                                        <Ionicons
+                                            name={isSelected ? "checkmark-circle" : "ellipse-outline"}
+                                            size={26}
+                                            color={isSelected ? "#0d6efd" : "#ccc"}
+                                        />
+                                    </TouchableOpacity>
+                                );
+                            }}
+                            ListEmptyComponent={<Text style={{ textAlign: "center", color: "#888", marginTop: 20 }}>Không có cuộc trò chuyện nào</Text>}
+                        />
+                    </View>
+                </View>
+            </Modal>
+
         </SafeAreaView>
     );
 }
@@ -730,7 +812,7 @@ const styles = StyleSheet.create({
     reactionPopup: { backgroundColor: '#ffffff', borderRadius: 30, paddingHorizontal: 8, paddingVertical: 6, flexDirection: 'row', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 5, elevation: 5 },
     reactionBadge: { position: 'absolute', bottom: -10, backgroundColor: '#ffffff', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 12, borderWidth: 1, borderColor: '#e5e7eb', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 1, elevation: 1 },
 
-    actionBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#4b5563', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 3, elevation: 4 },
+    actionBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#4b5563', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 3, elevation: 4, marginBottom: 4 },
     actionBtnText: { color: "#fff", marginLeft: 4, fontWeight: "600", fontSize: 13 },
 
     pinnedBar: { flexDirection: "row", alignItems: "center", backgroundColor: "#f0fdf4", paddingHorizontal: 15, paddingVertical: 10, borderBottomWidth: 1, borderColor: "#e5e7eb" },
@@ -739,7 +821,17 @@ const styles = StyleSheet.create({
     replyPreviewBox: { flexDirection: "row", alignItems: "center", backgroundColor: "#f8fafc", paddingHorizontal: 12, paddingVertical: 10, borderTopWidth: 1, borderColor: "#e5e7eb" },
     repliedBubble: { padding: 8, borderRadius: 8, marginBottom: 6, borderLeftWidth: 3, borderLeftColor: "rgba(255,255,255,0.5)" },
 
-    // System Message Styles
     systemMsgContainer: { alignItems: 'center', marginVertical: 15 },
     systemMsgText: { fontSize: 12, color: '#6b7280', backgroundColor: '#e5e7eb', paddingHorizontal: 16, paddingVertical: 6, borderRadius: 16, overflow: 'hidden', textAlign: 'center', maxWidth: '85%' },
+
+    // 👉 CSS DÀNH CHO MODAL CHỌN DANH SÁCH BẠN BÈ ĐỂ CHUYỂN TIẾP
+    bottomSheetOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
+    bottomSheetContent: { backgroundColor: "#fff", borderTopLeftRadius: 15, borderTopRightRadius: 15, height: "70%" },
+    sheetHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 15, borderBottomWidth: 1, borderColor: "#eee" },
+    sheetTitle: { fontSize: 17, fontWeight: "bold", color: "#111" },
+    cancelText: { fontSize: 16, color: "#6b7280" },
+    confirmText: { fontSize: 16, color: "#9ca3af", fontWeight: "bold" },
+    friendSelectItem: { flexDirection: "row", alignItems: "center", marginBottom: 20 },
+    memberAvatar: { width: 46, height: 46, borderRadius: 23, marginRight: 12 },
+    memberName: { fontSize: 16, fontWeight: "500", color: "#111" },
 });

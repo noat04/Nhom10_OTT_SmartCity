@@ -26,21 +26,51 @@ const VideoCall = forwardRef(({ socket, currentUser, partnerId, conversationId, 
   const [callType, setCallType] = useState("video");
   const callTypeRef = useRef("video");
 
+  // ✅ THÊM: State đếm giờ
+  const [callDuration, setCallDuration] = useState(0);
+  const callTimerRef = useRef(null);
+
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const peerConnectionRef = useRef(null);
   const localStreamRef = useRef(null);
   const currentCallIdRef = useRef(null);
-  // 👉 THÊM DÒNG NÀY: Dùng để lưu trữ Offer nhận được trong lúc đang đổ chuông
   const pendingOfferRef = useRef(null);
   const iceCandidateQueue = useRef([]);
+
+  // ✅ THÊM: Hàm format giây -> MM:SS
+  const formatDuration = (seconds) => {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    if (h > 0) {
+      return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    }
+    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  };
+
+  // ✅ THÊM: Bắt đầu đếm giờ khi connected
+  const startCallTimer = () => {
+    setCallDuration(0);
+    callTimerRef.current = setInterval(() => {
+      setCallDuration(prev => prev + 1);
+    }, 1000);
+  };
+
+  // ✅ THÊM: Dừng đếm giờ
+  const stopCallTimer = () => {
+    if (callTimerRef.current) {
+      clearInterval(callTimerRef.current);
+      callTimerRef.current = null;
+    }
+    setCallDuration(0);
+  };
 
   useImperativeHandle(ref, () => ({
     startCall: (type = "video", partner) => {
       setCallType(type);
       callTypeRef.current = type;
 
-      // 🔥 FIX: luôn lưu user thật
       const realUser =
         partner?.members
           ? partner.members.find(
@@ -50,10 +80,9 @@ const VideoCall = forwardRef(({ socket, currentUser, partnerId, conversationId, 
 
       setPartnerInfo(realUser);
 
-      // 👉 2. TRÍCH XUẤT ĐÚNG ID CỦA NGƯỜI NHẬN
       const targetReceiverId = realUser?.user?._id || realUser?._id || realUser?.id || partnerId;
 
-      console.log("🚀 ĐANG GỌI CHO APP CÓ ID LÀ:", targetReceiverId); // <-- Check F12 Web xem ID này có bị null/undefined không nhé!
+      console.log("🚀 ĐANG GỌI CHO APP CÓ ID LÀ:", targetReceiverId);
 
       if (!targetReceiverId) {
         alert("Lỗi: Không tìm thấy ID người nhận!");
@@ -134,6 +163,11 @@ const VideoCall = forwardRef(({ socket, currentUser, partnerId, conversationId, 
     return () => window.removeEventListener("beforeunload", handleLeave);
   }, [socket, incomingCallData, partnerId, conversationId]);
 
+  // ✅ THÊM: Cleanup timer khi component unmount
+  useEffect(() => {
+    return () => stopCallTimer();
+  }, []);
+
   useEffect(() => {
     if (!socket || !socket.connected) return;
 
@@ -143,6 +177,7 @@ const VideoCall = forwardRef(({ socket, currentUser, partnerId, conversationId, 
 
     socket.on("call_accepted", async (data) => {
       setCallStatus("connected");
+      startCallTimer(); // ✅ Bắt đầu đếm giờ khi đối phương nghe máy
       currentCallIdRef.current = data.callId;
       await startMedia();
       createPeerConnection(data.receiverId);
@@ -157,22 +192,7 @@ const VideoCall = forwardRef(({ socket, currentUser, partnerId, conversationId, 
     });
 
     socket.on("webrtc_offer", async (data) => {
-      // setCallStatus("connected");
-      // await startMedia();
-      // createPeerConnection(data.senderId);
-
-      // try {
-      //   await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.offer));
-      //   processIceQueue();
-
-      //   const answer = await peerConnectionRef.current.createAnswer();
-      //   await peerConnectionRef.current.setLocalDescription(answer);
-
-      //   socket.emit("webrtc_answer", { receiverId: data.senderId, answer, callId: data.callId });
-      // } catch (e) {
-      //   console.error("Lỗi xử lý Offer:", e);
       pendingOfferRef.current = data;
-
     });
 
     socket.on("webrtc_answer", async (data) => {
@@ -211,6 +231,7 @@ const VideoCall = forwardRef(({ socket, currentUser, partnerId, conversationId, 
     socket.on("call_timeout", () => {
       endCallUI();
     });
+
     socket.on("call_busy", () => {
       alert("Người dùng đang bận");
       endCallUI();
@@ -258,14 +279,6 @@ const VideoCall = forwardRef(({ socket, currentUser, partnerId, conversationId, 
     };
   };
 
-  // const acceptCall = () => {
-  //   if (!incomingCallData) return;
-  //   setCallStatus("connecting");
-  //   socket.emit("call_accept", {
-  //     callId: incomingCallData.callId,
-  //     callerId: incomingCallData.caller?._id || incomingCallData.caller?.id
-  //   });
-  // };
   const acceptCall = async () => {
     if (!incomingCallData) return;
 
@@ -275,12 +288,11 @@ const VideoCall = forwardRef(({ socket, currentUser, partnerId, conversationId, 
       callerId: incomingCallData.caller?._id || incomingCallData.caller?.id
     });
 
-    // 👉 ĐƯA LOGIC BẬT CAMERA VÀ KẾT NỐI VÀO ĐÂY (VÌ NGƯỜI DÙNG ĐÃ BẤM NGHE)
     setCallStatus("connected");
+    startCallTimer(); // ✅ Bắt đầu đếm giờ khi mình nghe máy
     await startMedia();
     createPeerConnection(incomingCallData.caller?._id || incomingCallData.caller?.id);
 
-    // Kiểm tra xem lúc nãy có nhận được Offer từ App gửi sang chưa?
     if (pendingOfferRef.current) {
       try {
         const data = pendingOfferRef.current;
@@ -291,8 +303,6 @@ const VideoCall = forwardRef(({ socket, currentUser, partnerId, conversationId, 
         await peerConnectionRef.current.setLocalDescription(answer);
 
         socket.emit("webrtc_answer", { receiverId: data.senderId, answer, callId: data.callId });
-
-        // Xóa offer tạm sau khi xử lý xong
         pendingOfferRef.current = null;
       } catch (e) {
         console.error("Lỗi xử lý Offer khi bấm Nghe:", e);
@@ -319,6 +329,7 @@ const VideoCall = forwardRef(({ socket, currentUser, partnerId, conversationId, 
   };
 
   const endCallUI = () => {
+    stopCallTimer(); // ✅ Dừng và reset đồng hồ
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => track.stop());
     }
@@ -350,28 +361,24 @@ const VideoCall = forwardRef(({ socket, currentUser, partnerId, conversationId, 
   if (callStatus === "idle") return null;
 
   const displayUser = (() => {
-    // 📞 người nhận → hiển thị caller
     if (incomingCallData?.caller) return incomingCallData.caller;
-
-    // 📞 người gọi → hiển thị partner (đã fix ở trên)
     if (partnerInfo) return partnerInfo;
-
     return null;
   })();
 
-  // Format Status Text Zalo Style
+  // ✅ SỬA: statusText dùng formatDuration thay vì hardcode "00:00"
   let statusText = "";
   if (callStatus === "calling") statusText = callType === "video" ? "Đang gọi video..." : "Đang gọi thoại...";
   if (callStatus === "ringing") statusText = "Đang đổ chuông...";
   if (callStatus === "connecting") statusText = "Đang kết nối...";
-  if (callStatus === "connected" && callType === "audio") statusText = "00:00"; // Tương lai bạn có thể gắn đếm giờ vào đây
+  if (callStatus === "connected") statusText = formatDuration(callDuration);
 
   return (
     <div
       className="position-fixed top-0 start-0 w-100 h-100 overflow-hidden"
       style={{ backgroundColor: "#242424", zIndex: 9999, fontFamily: "system-ui, -apple-system, sans-serif" }}
     >
-      {/* 1. REMOTE VIDEO (LỚP NỀN DƯỚI CÙNG NẾU LÀ VIDEO CALL) */}
+      {/* REMOTE VIDEO */}
       <video
         ref={remoteVideoRef}
         autoPlay
@@ -385,8 +392,7 @@ const VideoCall = forwardRef(({ socket, currentUser, partnerId, conversationId, 
         }}
       />
 
-      {/* 2. LAYER THÔNG TIN BỀ MẶT (ẢNH ĐẠI DIỆN + TÊN) */}
-      {/* Ẩn cục avatar khổng lồ này đi nếu đang trong cuộc gọi video để nhường chỗ cho hình ảnh đối tác */}
+      {/* AVATAR + TÊN + TRẠNG THÁI (ẩn khi đang video call) */}
       {!(callStatus === "connected" && callType === "video") && (
         <div className="position-absolute top-0 start-0 w-100 h-100 d-flex flex-column justify-content-center align-items-center" style={{ zIndex: 2 }}>
           <div className="position-relative mb-4">
@@ -402,7 +408,6 @@ const VideoCall = forwardRef(({ socket, currentUser, partnerId, conversationId, 
                 </div>
               )}
             </div>
-            {/* Hiệu ứng gợn sóng khi gọi thoại */}
             {callStatus === "connected" && callType === "audio" && (
               <div className="position-absolute top-50 start-50 translate-middle rounded-circle border border-success border-3"
                 style={{ width: "160px", height: "160px", opacity: 0.5, animation: "ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite" }} />
@@ -411,18 +416,23 @@ const VideoCall = forwardRef(({ socket, currentUser, partnerId, conversationId, 
           <h2 className="text-white fw-medium mb-1" style={{ textShadow: "0 2px 4px rgba(0,0,0,0.5)" }}>
             {displayUser?.fullName || displayUser?.username || displayUser?.name || "User"}
           </h2>
+          {/* ✅ statusText giờ tự động cập nhật mỗi giây khi connected */}
           <p className="text-white-50 fs-6" style={{ letterSpacing: "0.5px" }}>{statusText}</p>
         </div>
       )}
 
-      {/* INFO THU NHỎ GÓC TRÁI (KHI TRONG CUỘC GỌI VIDEO) */}
+      {/* INFO GÓC TRÁI KHI VIDEO CALL — hiển thị tên + đồng hồ */}
       {(callStatus === "connected" && callType === "video") && (
         <div className="position-absolute top-0 start-0 p-4" style={{ zIndex: 3, textShadow: "0 2px 4px rgba(0,0,0,0.8)" }}>
           <h4 className="text-white mb-0">{displayUser?.fullName || "Người dùng"}</h4>
+          {/* ✅ Hiển thị đồng hồ ngay dưới tên khi video call */}
+          <p className="text-white-50 mb-0" style={{ fontSize: "14px", letterSpacing: "1px" }}>
+            {formatDuration(callDuration)}
+          </p>
         </div>
       )}
 
-      {/* 3. LOCAL VIDEO (CAM CỦA CHÍNH MÌNH TẠI GÓC DƯỚI PHẢI) */}
+      {/* LOCAL VIDEO */}
       <video
         ref={localVideoRef}
         autoPlay
@@ -442,10 +452,9 @@ const VideoCall = forwardRef(({ socket, currentUser, partnerId, conversationId, 
         }}
       />
 
-      {/* 4. KHU VỰC ĐIỀU KHIỂN (CONTROLS BAR Ở ĐÁY MÀN HÌNH) */}
+      {/* CONTROLS */}
       <div className="position-absolute bottom-0 start-0 w-100 pb-5 d-flex justify-content-center align-items-center gap-4" style={{ zIndex: 5 }}>
 
-        {/* TRẠNG THÁI GỌI ĐI (CALLING) */}
         {callStatus === "calling" && (
           <button
             className="btn rounded-circle shadow-lg d-flex justify-content-center align-items-center"
@@ -457,7 +466,6 @@ const VideoCall = forwardRef(({ socket, currentUser, partnerId, conversationId, 
           </button>
         )}
 
-        {/* TRẠNG THÁI CUỘC GỌI ĐẾN (RINGING) */}
         {callStatus === "ringing" && (
           <>
             <button
@@ -479,10 +487,8 @@ const VideoCall = forwardRef(({ socket, currentUser, partnerId, conversationId, 
           </>
         )}
 
-        {/* TRẠNG THÁI ĐÃ KẾT NỐI (CONNECTED/CONNECTING) */}
         {(callStatus === "connected" || callStatus === "connecting") && (
           <>
-            {/* Nút bật/tắt Mic */}
             <button
               className="btn rounded-circle shadow border-0 d-flex justify-content-center align-items-center"
               style={{
@@ -497,7 +503,6 @@ const VideoCall = forwardRef(({ socket, currentUser, partnerId, conversationId, 
               {isMicOn ? <FaMicrophone size={22} /> : <FaMicrophoneSlash size={22} />}
             </button>
 
-            {/* Nút bật/tắt Camera (Chỉ hiện khi gọi Video) */}
             {callType === "video" && (
               <button
                 className="btn rounded-circle shadow border-0 d-flex justify-content-center align-items-center"
@@ -514,7 +519,6 @@ const VideoCall = forwardRef(({ socket, currentUser, partnerId, conversationId, 
               </button>
             )}
 
-            {/* Nút Cúp Máy */}
             <button
               className="btn rounded-circle shadow-lg d-flex justify-content-center align-items-center"
               style={{ width: "64px", height: "64px", backgroundColor: "#ff4d4f", color: "white" }}
@@ -526,7 +530,6 @@ const VideoCall = forwardRef(({ socket, currentUser, partnerId, conversationId, 
         )}
       </div>
 
-      {/* CHÚT CSS CHO HIỆU ỨNG RUNG CHUÔNG & SÓNG ÂM */}
       <style>{`
         @keyframes bounce {
           0%, 20%, 50%, 80%, 100% {transform: translateY(0);}
