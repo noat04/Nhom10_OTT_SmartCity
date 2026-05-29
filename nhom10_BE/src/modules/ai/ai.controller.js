@@ -1,7 +1,7 @@
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const mongoose = require("mongoose");
-const AiSession = require("../../../models/AiSession");
-const AiMessage = require("../../../models/AiMessage");
+const AiSession = require("../../../models/aiSession");
+const AiMessage = require("../../../models/aiMessage");
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
