@@ -43,6 +43,11 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: ""
   },
+  role: {
+    type: String,
+    enum: ['user', 'admin'],
+    default: 'user'
+  },
   status: {
     type: String,
     enum: ['online', 'offline'], // (Tùy chọn) Ràng buộc các trạng thái

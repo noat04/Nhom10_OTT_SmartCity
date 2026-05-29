@@ -128,7 +128,9 @@ class AuthService {
                 fullName: user.fullName,
                 phone: user.phone,
                 bio: user.bio,
-                avatar: user.avatar
+                avatar: user.avatar,
+                role: user.role,
+                isAdmin: user.role === 'admin'
             }
         };
     }

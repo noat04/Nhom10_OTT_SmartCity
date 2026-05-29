@@ -11,12 +11,9 @@ export const connectSocket = (token) => {
     return socket;
   }
 
-  const socket = io(import.meta.env.VITE_SOCKET_URL, {
-    auth: {
-      token,
-    },
+  socket = io("http://localhost:3000", {
+    auth: { token },
     transports: ["websocket", "polling"],
-    autoConnect: true,
   });
   socket.on("connect", () => {
     console.log("✅ Socket connected:", socket.id);
