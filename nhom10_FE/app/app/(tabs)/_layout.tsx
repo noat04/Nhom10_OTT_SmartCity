@@ -6,7 +6,7 @@ import { useNotification } from "../../context/notificationContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function TabLayout() {
-  const { contactBadgeCount } = useNotification();
+  const { contactBadgeCount, chatBadgeCount } = useNotification();
 
   // 👉 2. Lấy thông số vùng an toàn của thiết bị hiện tại
   const insets = useSafeAreaInsets();
@@ -36,8 +36,44 @@ export default function TabLayout() {
         options={{
           title: "Chat",
           tabBarIcon: ({ color, size = 22 }) => (
-            <Ionicons name="chatbubble" size={size} color={color} />
+            <View style={{ width: size + 16, height: size + 16, overflow: "visible" }}>
+              <Ionicons name="chatbubble" size={size} color={color} />
+              {chatBadgeCount > 0 && (
+                <View
+                  style={{
+                    position: "absolute",
+                    top: -2,
+                    right: -6,
+                    minWidth: 16,
+                    height: 16,
+                    borderRadius: 8,
+                    backgroundColor: "red",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    paddingHorizontal: 4,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: "#fff",
+                      fontSize: 10,
+                      fontWeight: "700",
+                    }}
+                  >
+                    {chatBadgeCount > 9 ? "9+" : chatBadgeCount}
+                  </Text>
+                </View>
+              )}
+            </View>
           ),
+          tabBarBadge:
+            chatBadgeCount > 0 ? (chatBadgeCount > 9 ? "9+" : chatBadgeCount) : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: "red",
+            color: "#fff",
+            fontSize: 10,
+            fontWeight: "700",
+          },
         }}
       />
 

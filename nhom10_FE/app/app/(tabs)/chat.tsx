@@ -1,4 +1,4 @@
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -14,11 +14,13 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import TopSearchBar from "../../components/TopSearchBar";
 import { useAuth } from "../../context/authContext";
+import { useNotification } from "../../context/notificationContext";
 import { getConversationsAPI } from "../../service/chat.api";
 import { getSocket } from "../../socket/socket";
 export default function ChatScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const { setChatBadgeCount } = useNotification();
 
   const [keyword, setKeyword] = useState("");
   const [conversations, setConversations] = useState<any[]>([]);
@@ -178,6 +180,12 @@ export default function ChatScreen() {
     if (!myId) return;
     loadConversations();
   }, [myId, loadConversations]);
+
+  useFocusEffect(
+    useCallback(() => {
+      setChatBadgeCount(0);
+    }, []),
+  );
 
   useEffect(() => {
     if (!myId) return;
