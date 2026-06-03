@@ -5,8 +5,13 @@ import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, TextInput, Toucha
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { deleteAiSessionAPI, getAiSessionsAPI } from '../../service/ai.api';
 
+type AiSession = {
+    _id: string;
+    title?: string;
+};
+
 export default function AiSessionListScreen() {
-    const [sessions, setSessions] = useState([]);
+    const [sessions, setSessions] = useState<AiSession[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
     // 👉 State mới cho tìm kiếm
@@ -33,7 +38,7 @@ export default function AiSessionListScreen() {
         }
     };
 
-    const handleDelete = (sessionId) => {
+    const handleDelete = (sessionId: string) => {
         Alert.alert("Xóa đoạn chat", "Bạn có chắc chắn muốn xóa cuộc trò chuyện này?", [
             { text: "Hủy", style: "cancel" },
             {
@@ -51,7 +56,7 @@ export default function AiSessionListScreen() {
         ]);
     };
 
-    const handleOpenChat = (sessionId, title) => {
+    const handleOpenChat = (sessionId: string | null, title?: string) => {
         router.push({
             pathname: "/ai/[id]",
             params: {
@@ -66,7 +71,7 @@ export default function AiSessionListScreen() {
         (session.title || "Cuộc trò chuyện").toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-    const renderItem = ({ item }) => (
+    const renderItem = ({ item }: { item: AiSession }) => (
         <TouchableOpacity
             style={styles.sessionItem}
             onPress={() => handleOpenChat(item._id, item.title)}

@@ -33,6 +33,23 @@ export const updateProfile = async (data) => {
   }
 };
 
+export const updatePassword = async (data) => {
+  try {
+    const token = getCleanToken();
+
+    const res = await api.put("/users/password", data, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+
+    return res.data;
+  } catch (err) {
+    return {
+      success: false,
+      message: err.response?.data?.message || "Doi mat khau that bai",
+    };
+  }
+};
+
 export const updateAvatar = async (file) => {
   try {
     const token = getCleanToken();
@@ -71,3 +88,15 @@ export const updateCover = async (file) => {
       return { success: false, message: err.response?.data?.message || "Lỗi upload cover" };
     }
   };
+
+export const deleteMyAccount = async () => {
+  try {
+    const res = await api.delete("/users/me");
+    return res.data;
+  } catch (err) {
+    return {
+      success: false,
+      message: err.response?.data?.message || "Khong the xoa tai khoan",
+    };
+  }
+};

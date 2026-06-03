@@ -55,6 +55,7 @@ type Message = {
     reactions?: Reaction[];
     replyTo?: Message;
     isDeleted?: boolean;
+    seenBy?: any[];
 };
 
 const emojiMap: Record<string, string> = {
@@ -63,8 +64,9 @@ const emojiMap: Record<string, string> = {
 
 export default function GroupChatDetail() {
     const insets = useSafeAreaInsets();
-    const { id } = useLocalSearchParams();
+    const { id, isActive } = useLocalSearchParams();
     const conversationId = Array.isArray(id) ? id[0] : id;
+    const initialIsActive = Array.isArray(isActive) ? isActive[0] : isActive;
 
     const [myId, setMyId] = useState<string | null>(null);
     const [groupInfo, setGroupInfo] = useState<any>(null);
@@ -72,6 +74,7 @@ export default function GroupChatDetail() {
     const [message, setMessage] = useState("");
     const [chat, setChat] = useState<Message[]>([]);
     const [typing, setTyping] = useState(false);
+    const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const flatListRef = useRef<FlatList>(null);
     const [selectedFile, setSelectedFile] = useState<any>(null);
@@ -101,6 +104,8 @@ export default function GroupChatDetail() {
     const [conversationsList, setConversationsList] = useState<any[]>([]);
     const [selectedForwardTargets, setSelectedForwardTargets] = useState<string[]>([]);
     const [isForwarding, setIsForwarding] = useState(false);
+    const [onlineUserIds, setOnlineUserIds] = useState<string[]>([]);
+    const [groupDissolved, setGroupDissolved] = useState(initialIsActive === "false");
 
     useEffect(() => {
         const map: any = {};
@@ -109,6 +114,44 @@ export default function GroupChatDetail() {
         });
         messageIndexMap.current = map;
     }, [chat]);
+
+    const getSenderId = (item: Message) => {
+        return typeof item.senderId === "object" ? item.senderId?._id : item.senderId;
+    };
+
+    const hasSeenByOthers = (item: Message) => {
+        const seenBy = Array.isArray(item.seenBy) ? item.seenBy : [];
+        return (
+            item.status === "seen" ||
+            seenBy.some((seen: any) => {
+                const seenUserId =
+                    typeof seen?.userId === "object" ? seen.userId?._id : seen?.userId;
+                return seenUserId && String(seenUserId) !== String(myId);
+            })
+        );
+    };
+
+    const getLastOwnMessageId = () => {
+        return chat.find((item) => String(getSenderId(item)) === String(myId))?._id || null;
+    };
+
+    const emitSeen = () => {
+        const socket = getSocket();
+        if (!socket || !conversationId) return;
+        socket.emit("seen", { conversationId });
+        socket.emit("group_seen", { conversationId });
+    };
+
+    const getMemberUserId = (member: any) => {
+        const memberUser = member?.user || member;
+        return typeof memberUser === "object" ? memberUser?._id || memberUser?.id : memberUser;
+    };
+
+    const onlineMemberCount = Array.isArray(groupInfo?.members)
+        ? groupInfo.members.filter((member: any) =>
+            onlineUserIds.includes(String(getMemberUserId(member))),
+        ).length
+        : 0;
 
     // ================= LOAD DATA BAN ĐẦU =================
     useEffect(() => {
@@ -121,7 +164,11 @@ export default function GroupChatDetail() {
 
             if (conversationId) {
                 const infoRes = await getGroupInfoAPI(conversationId);
-                if (infoRes?.success) setGroupInfo(infoRes.data || infoRes);
+                if (infoRes?.success) {
+                    const group = infoRes.data || infoRes;
+                    setGroupInfo(group);
+                    setGroupDissolved(group?.isActive === false);
+                }
 
                 const pinRes = await getPinnedMessagesAPI(conversationId);
                 if (pinRes?.success) setPinnedMessages(pinRes.data?.pinnedMessages || pinRes.data || []);
@@ -129,6 +176,41 @@ export default function GroupChatDetail() {
         };
         loadInitData();
     }, [conversationId]);
+
+    useEffect(() => {
+        const socket = getSocket();
+        if (!socket) return;
+
+        const handleOnlineList = (ids: any[]) => {
+            setOnlineUserIds(Array.isArray(ids) ? ids.map(String) : []);
+        };
+
+        const handleUserOnline = (userId: any) => {
+            setOnlineUserIds((prev) => {
+                const id = String(userId);
+                return prev.includes(id) ? prev : [...prev, id];
+            });
+        };
+
+        const handleUserOffline = (payload: any) => {
+            const offlineUserId =
+                typeof payload === "object" ? payload?.userId : payload;
+            setOnlineUserIds((prev) =>
+                prev.filter((id) => id !== String(offlineUserId)),
+            );
+        };
+
+        socket.on("online_list", handleOnlineList);
+        socket.on("user_online", handleUserOnline);
+        socket.on("user_offline", handleUserOffline);
+        socket.emit("get_online_users");
+
+        return () => {
+            socket.off("online_list", handleOnlineList);
+            socket.off("user_online", handleUserOnline);
+            socket.off("user_offline", handleUserOffline);
+        };
+    }, []);
 
     // ================= DEBOUNCE TÌM KIẾM TIN NHẮN =================
     useEffect(() => {
@@ -159,6 +241,7 @@ export default function GroupChatDetail() {
             setChat(messagesArray.reverse());
             setNextCursor(res.data?.nextCursor || null);
             setHasMore(res.data?.hasMore || false);
+            setTimeout(emitSeen, 0);
         } else {
             Alert.alert("Lỗi", res?.message || "Không thể tải tin nhắn");
         }
@@ -195,6 +278,9 @@ export default function GroupChatDetail() {
         if (!socket || !conversationId) return;
 
         socket.emit("joinConversation", conversationId);
+        socket.emit("group_join_room", conversationId);
+        socket.emit("seen", { conversationId });
+        socket.emit("group_seen", { conversationId });
 
         const handleNewMessage = (msg: Message) => {
             const id = typeof msg.conversationId === "object" ? (msg.conversationId as any)._id : msg.conversationId;
@@ -204,13 +290,28 @@ export default function GroupChatDetail() {
                 if (prev.some((m) => m._id === msg._id)) return prev;
                 return [msg, ...prev];
             });
+            if (String(getSenderId(msg)) !== String(myId)) {
+                socket.emit("seen", { conversationId });
+                socket.emit("group_seen", { conversationId });
+            }
         };
 
         const handleReaction = (updatedMsg: Message) => {
             setChat((prev) => prev.map((m) => String(m._id) === String(updatedMsg._id) ? { ...m, reactions: updatedMsg.reactions } : m));
         };
 
-        const handleSeen = ({ userId }: { userId: string }) => {
+        const handleSeen = ({ userId, seenMessages }: { userId: string; seenMessages?: Message[] }) => {
+            if (Array.isArray(seenMessages) && seenMessages.length > 0) {
+                const seenMap = new Map(seenMessages.map((item) => [String(item._id), item]));
+                setChat((prev) =>
+                    prev.map((m) => {
+                        const updated = seenMap.get(String(m._id));
+                        return updated ? { ...m, ...updated, status: "seen" } : m;
+                    }),
+                );
+                return;
+            }
+
             setChat((prev) => prev.map((m) => {
                 const sender = typeof m.senderId === "object" ? m.senderId._id : m.senderId;
                 return String(sender) === String(myId) ? { ...m, status: "seen" } : m;
@@ -218,7 +319,20 @@ export default function GroupChatDetail() {
         };
 
         const handleTyping = ({ userId, isTyping }: { userId: string; isTyping: boolean }) => {
-            if (userId !== myId) setTyping(isTyping);
+            if (userId === myId) return;
+
+            if (typingTimerRef.current) {
+                clearTimeout(typingTimerRef.current);
+            }
+
+            setTyping(isTyping);
+
+            if (isTyping) {
+                typingTimerRef.current = setTimeout(() => {
+                    setTyping(false);
+                    typingTimerRef.current = null;
+                }, 2500);
+            }
         };
 
         const handleMessagePinned = (updatedConversation: any) => {
@@ -241,23 +355,44 @@ export default function GroupChatDetail() {
             );
         };
 
+        const handleGroupDissolved = (payload: any) => {
+            const dissolvedConversationId = String(payload?.conversationId || payload?.group?._id || "");
+            if (dissolvedConversationId && String(dissolvedConversationId) !== String(conversationId)) return;
+
+            setGroupDissolved(true);
+            if (payload?.group) setGroupInfo(payload.group);
+            setMessage("");
+            setSelectedFile(null);
+            setReplyMessage(null);
+        };
+
         socket.on("newMessage", handleNewMessage);
         socket.on("message_reaction", handleReaction);
         socket.on("message_seen", handleSeen);
+        socket.on("group_message_seen", handleSeen);
         socket.on("typing", handleTyping);
         socket.on("message_pinned", handleMessagePinned);
         socket.on("message_edited", handleEdit);
         socket.on("message_deleted", handleDelete);
+        socket.on("group_dissolved", handleGroupDissolved);
 
         return () => {
+            socket.emit("typing", { conversationId, isTyping: false });
             socket.emit("leaveConversation", conversationId);
+            socket.emit("group_leave_room", conversationId);
+            if (typingTimerRef.current) {
+                clearTimeout(typingTimerRef.current);
+                typingTimerRef.current = null;
+            }
             socket.off("newMessage", handleNewMessage);
             socket.off("message_reaction", handleReaction);
             socket.off("message_seen", handleSeen);
+            socket.off("group_message_seen", handleSeen);
             socket.off("typing", handleTyping);
             socket.off("message_pinned", handleMessagePinned);
             socket.off("message_edited", handleEdit);
             socket.off("message_deleted", handleDelete);
+            socket.off("group_dissolved", handleGroupDissolved);
         };
     }, [conversationId, myId]);
 
@@ -345,22 +480,33 @@ export default function GroupChatDetail() {
     };
 
     const handlePickImage = async () => {
+        if (groupDissolved) return;
         let result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.All, quality: 0.8 });
         if (!result.canceled) {
             const asset = result.assets[0];
-            setSelectedFile({ uri: asset.uri, type: asset.type === "video" ? "video" : "image", name: asset.fileName || `upload_${Date.now()}.${asset.uri.split('.').pop()}`, mimeType: asset.mimeType || "image/jpeg" });
+            const sizeCheck = await canUsePickedFile(asset);
+            if (!sizeCheck.allowed) return;
+            setSelectedFile({ uri: asset.uri, type: asset.type === "video" ? "video" : "image", name: asset.fileName || `upload_${Date.now()}.${asset.uri.split('.').pop()}`, mimeType: asset.mimeType || "image/jpeg", size: sizeCheck.size });
         }
     };
 
     const handlePickDocument = async () => {
+        if (groupDissolved) return;
         let result = await DocumentPicker.getDocumentAsync({ type: "*/*", copyToCacheDirectory: true });
         if (!result.canceled) {
             const asset = result.assets[0];
-            setSelectedFile({ uri: asset.uri, type: "file", name: asset.name, mimeType: asset.mimeType || "application/octet-stream" });
+            const sizeCheck = await canUsePickedFile(asset);
+            if (!sizeCheck.allowed) return;
+            setSelectedFile({ uri: asset.uri, type: "file", name: asset.name, mimeType: asset.mimeType || "application/octet-stream", size: sizeCheck.size });
         }
     };
 
     const send = async () => {
+        if (groupDissolved) {
+            Alert.alert("Thông báo", "Nhóm đã giải tán, bạn chỉ có thể xem lại tin nhắn.");
+            return;
+        }
+
         if (editingMessage) return handleSaveEdit();
         if (!message.trim() && !selectedFile) return;
         setIsSending(true);
@@ -369,6 +515,8 @@ export default function GroupChatDetail() {
 
         try {
             if (selectedFile) {
+                const sizeCheck = await canUsePickedFile(selectedFile);
+                if (!sizeCheck.allowed) { setIsSending(false); return; }
                 msgType = selectedFile.type;
                 const presignedRes = await getPresignedUrlAPI({ fileName: selectedFile.name, fileType: selectedFile.mimeType });
                 if (!presignedRes?.success) { Alert.alert("Lỗi", "Không tạo được URL upload"); setIsSending(false); return; }
@@ -394,6 +542,7 @@ export default function GroupChatDetail() {
                 setMessage("");
                 setSelectedFile(null);
                 setReplyMessage(null);
+                getSocket()?.emit("typing", { conversationId, isTyping: false });
                 flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
             }
         } catch (error) {
@@ -456,9 +605,87 @@ export default function GroupChatDetail() {
     };
 
     const handleOpenFile = (url?: string) => { if (url) Linking.openURL(url).catch(() => Alert.alert("Lỗi", "Không thể mở file.")); };
+    const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
+    const getPickedFileSize = async (asset: any) => {
+        const directSize = asset?.fileSize || asset?.size;
+        if (typeof directSize === "number") return directSize;
+
+        try {
+            const response = await fetch(asset.uri);
+            const blob = await response.blob();
+            return blob.size;
+        } catch {
+            return 0;
+        }
+    };
+
+    const canUsePickedFile = async (asset: any) => {
+        const size = await getPickedFileSize(asset);
+        if (size > MAX_FILE_SIZE) {
+            Alert.alert("Thong bao", "Khong gui duoc file tren 10MB");
+            return { allowed: false, size };
+        }
+        return { allowed: true, size };
+    };
+
+    const getAttachmentMeta = (type?: string, fileName?: string, mimeType?: string) => {
+        const name = String(fileName || "").toLowerCase();
+        const mime = String(mimeType || "").toLowerCase();
+
+        if (type === "image" || mime.startsWith("image/")) return { icon: "image-outline" as any, color: "#0284c7", label: "Anh" };
+        if (type === "video" || mime.startsWith("video/")) return { icon: "videocam-outline" as any, color: "#7c3aed", label: "Video" };
+        if (name.endsWith(".pdf") || mime.includes("pdf")) return { icon: "document-text-outline" as any, color: "#dc2626", label: "PDF" };
+        if (/\.(doc|docx)$/i.test(name) || mime.includes("word")) return { icon: "document-text-outline" as any, color: "#2563eb", label: "Word" };
+        if (/\.(xls|xlsx|csv)$/i.test(name) || mime.includes("spreadsheet") || mime.includes("excel")) return { icon: "grid-outline" as any, color: "#16a34a", label: "Excel" };
+        return { icon: "document-attach-outline" as any, color: "#4b5563", label: "Tep" };
+    };
+
+    const renderAttachmentContent = (item: Message, isMe: boolean) => {
+        const meta = getAttachmentMeta(item.type, item.fileName);
+        const fileName = item.fileName || (item.type === "image" ? "Anh" : item.type === "video" ? "Video" : "Tep dinh kem");
+
+        return (
+            <TouchableOpacity onPress={() => handleOpenFile(item.fileUrl)} style={{ flexDirection: "row", alignItems: "center", backgroundColor: isMe ? "rgba(255,255,255,0.18)" : "#f3f4f6", padding: 10, borderRadius: 10, minWidth: 210, maxWidth: 260 }}>
+                <View style={{ width: 42, height: 42, borderRadius: 10, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center", marginRight: 10 }}>
+                    <Ionicons name={meta.icon} size={24} color={meta.color} />
+                </View>
+                <View style={{ flex: 1 }}>
+                    <Text style={{ color: isMe ? "#ffffff" : "#111827", fontWeight: "700", fontSize: 14 }} numberOfLines={1}>{fileName}</Text>
+                    <Text style={{ color: isMe ? "#e5e7eb" : "#6b7280", fontSize: 12, marginTop: 2 }}>{meta.label} - Nhan de mo</Text>
+                </View>
+            </TouchableOpacity>
+        );
+    };
+
+    const renderTextContent = (content: string, isMe: boolean) => {
+        const match = content.match(/(\S*group\/join\/\S+)/);
+        const color = isMe ? "white" : "#111827";
+        const linkColor = isMe ? "#dbeafe" : "#0d6efd";
+
+        if (!match) return <Text style={{ color, fontSize: 16, lineHeight: 22 }}>{content}</Text>;
+
+        const link = match[1];
+        const [before, after = ""] = content.split(link);
+
+        return (
+            <Text style={{ color, fontSize: 16, lineHeight: 22 }}>
+                {before}
+                <Text
+                    style={{ color: linkColor, textDecorationLine: "underline", fontWeight: "700" }}
+                    onPress={() => Linking.openURL(link).catch(() => Alert.alert("Lá»—i", "KhÃ´ng thá»ƒ má»Ÿ link."))}
+                >
+                    {link}
+                </Text>
+                {after}
+            </Text>
+        );
+    };
+    const lastOwnMessageId = getLastOwnMessageId();
 
     const renderMessageContent = (item: Message, isMe: boolean) => {
         if (item.isDeleted) return <Text style={{ color: "#888", fontStyle: 'italic' }}>Tin nhắn đã thu hồi</Text>;
+        if (["image", "video", "file"].includes(String(item.type))) return renderAttachmentContent(item, isMe);
         switch (item.type) {
             case "image":
                 const safeImgUrl = (item.fileUrl && String(item.fileUrl).trim() !== "") ? item.fileUrl : "https://developers.elementor.com/docs/assets/img/elementor-placeholder-image.png";
@@ -469,7 +696,7 @@ export default function GroupChatDetail() {
                 );
             case "video": return <TouchableOpacity onPress={() => handleOpenFile(item.fileUrl)} style={{ width: 200, height: 150, backgroundColor: '#000', borderRadius: 8, justifyContent: 'center', alignItems: 'center' }}><Ionicons name="play-circle" size={50} color="rgba(255,255,255,0.8)" /><Text style={{ color: '#fff', fontSize: 12, marginTop: 5 }}>Video</Text></TouchableOpacity>;
             case "file": return <TouchableOpacity onPress={() => handleOpenFile(item.fileUrl)} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: isMe ? "rgba(255,255,255,0.2)" : "#f3f4f6", padding: 10, borderRadius: 8, maxWidth: 220 }}><View style={{ width: 40, height: 40, backgroundColor: '#fff', borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginRight: 10 }}><Ionicons name="document-text" size={24} color="#0d6efd" /></View><View style={{ flex: 1 }}><Text style={{ color: isMe ? "#fff" : "#111", fontWeight: '500' }} numberOfLines={1}>{item.fileName || "Tài liệu"}</Text><Text style={{ color: isMe ? "#e0e0e0" : "#666", fontSize: 12 }}>Nhấn để mở</Text></View></TouchableOpacity>;
-            default: return <Text style={{ color: isMe ? "white" : "#111827", fontSize: 16, lineHeight: 22 }}>{item.content}</Text>;
+            default: return renderTextContent(item.content || "", isMe);
         }
     };
 
@@ -501,7 +728,11 @@ export default function GroupChatDetail() {
                                 <Image source={{ uri: groupInfo?.avatar || "https://i.pravatar.cc/150" }} style={styles.headerAvatar} />
                                 <View>
                                     <Text style={styles.headerName} numberOfLines={1}>{groupInfo?.name || "Nhóm Chat"}</Text>
-                                    <Text style={{ fontSize: 12, color: '#6b7280' }}>{groupInfo?.members?.length || 0} thành viên</Text>
+                                    <Text style={{ fontSize: 12, color: groupDissolved ? '#ef4444' : '#6b7280' }}>
+                                        {groupDissolved
+                                            ? "Nhóm đã giải tán"
+                                            : `${groupInfo?.members?.length || 0} thành viên • ${onlineMemberCount} đang hoạt động`}
+                                    </Text>
                                 </View>
                             </View>
 
@@ -588,6 +819,7 @@ export default function GroupChatDetail() {
                             const isMe = String(senderId) === String(myId);
                             const isReactionActive = activeReactionId === item._id;
                             const isPinned = pinnedMessages.some(p => String(p.message?._id) === String(item._id));
+                            const shouldShowDeliveryStatus = isMe && item._id === lastOwnMessageId && item.type !== "system";
 
                             // 🔴 XỬ LÝ TIN NHẮN HỆ THỐNG
                             if (item.type === "system") {
@@ -694,6 +926,11 @@ export default function GroupChatDetail() {
                                                     </Text>
                                                 </View>
                                             )}
+                                            {shouldShowDeliveryStatus && (
+                                                <Text style={styles.deliveryStatusText}>
+                                                    {hasSeenByOthers(item) ? "Đã xem" : "Đã gửi"}
+                                                </Text>
+                                            )}
                                         </View>
                                     </View>
                                 </View>
@@ -706,6 +943,14 @@ export default function GroupChatDetail() {
 
                 {/* INPUT AREA */}
                 {!isSearching && (
+                    groupDissolved ? (
+                        <View style={styles.lockedGroupBox}>
+                            <Ionicons name="lock-closed-outline" size={18} color="#6b7280" />
+                            <Text style={styles.lockedGroupText}>
+                                Nhóm đã giải tán. Bạn chỉ có thể xem lại tin nhắn trước đó.
+                            </Text>
+                        </View>
+                    ) : (
                     <View style={{ backgroundColor: "#ffffff" }}>
                         {replyMessage && (
                             <View style={styles.replyPreviewBox}>
@@ -726,7 +971,7 @@ export default function GroupChatDetail() {
                         {selectedFile && (
                             <View style={{ padding: 10, backgroundColor: "#f9fafb", borderTopWidth: 1, borderColor: "#e5e7eb", flexDirection: "row", alignItems: "center" }}>
                                 <View style={{ width: 40, height: 40, backgroundColor: "#e5e7eb", borderRadius: 8, justifyContent: "center", alignItems: "center", overflow: "hidden" }}>
-                                    {selectedFile.type === "image" ? <Image source={{ uri: selectedFile.uri }} style={{ width: 40, height: 40 }} /> : <Ionicons name={selectedFile.type === "video" ? "videocam" : "document"} size={24} color="#6b7280" />}
+                                    <Ionicons name={getAttachmentMeta(selectedFile.type, selectedFile.name, selectedFile.mimeType).icon} size={24} color={getAttachmentMeta(selectedFile.type, selectedFile.name, selectedFile.mimeType).color} />
                                 </View>
                                 <Text style={{ flex: 1, marginLeft: 10, fontSize: 13 }} numberOfLines={1}>{selectedFile.name}</Text>
                                 <TouchableOpacity onPress={() => setSelectedFile(null)}><Ionicons name="close-circle" size={24} color="#ef4444" /></TouchableOpacity>
@@ -742,6 +987,7 @@ export default function GroupChatDetail() {
                             </TouchableOpacity>
                         </View>
                     </View>
+                    )
                 )}
 
             </KeyboardAvoidingView>
@@ -807,6 +1053,9 @@ const styles = StyleSheet.create({
     messageAvatar: { width: 30, height: 30, borderRadius: 15 },
     inputContainer: { flexDirection: "row", alignItems: "flex-end", padding: 8, backgroundColor: "#ffffff", borderTopWidth: 0, borderColor: "#e5e7eb" },
     textInput: { flex: 1, backgroundColor: "#f3f4f6", borderRadius: 20, paddingHorizontal: 15, paddingTop: 10, paddingBottom: 10, fontSize: 16, maxHeight: 100, marginLeft: 4, marginRight: 4 },
+    deliveryStatusText: { color: "#6b7280", fontSize: 11, alignSelf: "flex-end", marginTop: 3, marginRight: 4 },
+    lockedGroupBox: { flexDirection: "row", alignItems: "center", backgroundColor: "#f9fafb", borderTopWidth: 1, borderTopColor: "#e5e7eb", paddingHorizontal: 14, paddingVertical: 12 },
+    lockedGroupText: { flex: 1, color: "#6b7280", fontSize: 13, lineHeight: 18, marginLeft: 8 },
 
     reactionPopupWrapper: { marginBottom: 8, zIndex: 999, elevation: 5 },
     reactionPopup: { backgroundColor: '#ffffff', borderRadius: 30, paddingHorizontal: 8, paddingVertical: 6, flexDirection: 'row', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 5, elevation: 5 },

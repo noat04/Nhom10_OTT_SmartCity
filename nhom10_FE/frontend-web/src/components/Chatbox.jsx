@@ -2,24 +2,27 @@ import React, { useEffect, useRef, useState } from "react";
 import EmojiPicker from "emoji-picker-react";
 import VideoCall from './VideoCall';
 // 👉 Thêm FaShare vào import icons
-import { FaVideo, FaPhoneAlt, FaReply, FaThumbtack, FaPen, FaTrash, FaHeart, FaShare } from "react-icons/fa";
+import { FaVideo, FaPhoneAlt, FaReply, FaThumbtack, FaPen, FaTrash, FaHeart, FaShare, FaLock, FaPaperclip, FaSmile, FaPaperPlane, FaInfo, FaFilePdf, FaFileWord, FaFileExcel, FaFileAlt, FaDownload, FaFileImage, FaFileVideo } from "react-icons/fa";
 import {
   getMessages,
   sendMessageAPI,
   getPresignedUrl,
   editMessageAPI,
   deleteMessageAPI,
+  deleteMessageForMeAPI,
   reactMessageAPI,
   searchMessagesAPI,
   pinMessageAPI,
   getPinnedMessagesAPI,
-  forwardMessageAPI, getConversationsAPI
+  forwardMessageAPI, getConversationsAPI,
+  getPrivateUserInfoAPI
 } from "../api/chatApi";
 import {
   getFriendsAPI,
   getFriendRequestsAPI,
   acceptFriendRequestAPI,
   rejectFriendRequestAPI,
+  removeFriendAPI,
 } from "../api/friendAPI";
 import {
   getSocket,
@@ -31,10 +34,80 @@ import {
   offFriendRequestRejected,
   onFriendRequestSent,
   offFriendRequestSent,
+  onFriendRemoved,
+  offFriendRemoved,
   onNewNotification,
   offNewNotification,
 } from "../socket/socket";
 import { useAuth } from "../context/AuthContext";
+
+const renderTextWithLinks = (text = "") => {
+  const value = String(text);
+  const urlRegex = /(https?:\/\/[^\s]+|\/join-group\/[A-Za-z0-9_-]+)/g;
+  const parts = value.split(urlRegex);
+
+  return parts.map((part, index) => {
+    if (!part.match(urlRegex)) return part;
+
+    const trailing = part.match(/[.,!?)]$/)?.[0] || "";
+    const cleanUrl = trailing ? part.slice(0, -1) : part;
+    const sameOrigin =
+      cleanUrl.startsWith("/") ||
+      (cleanUrl.startsWith(window.location.origin) && cleanUrl.includes("/join-group/"));
+
+    return (
+      <React.Fragment key={`${cleanUrl}-${index}`}>
+        <a
+          href={cleanUrl}
+          target={sameOrigin ? undefined : "_blank"}
+          rel={sameOrigin ? undefined : "noreferrer"}
+          style={{ color: "#0d6efd", textDecoration: "underline", overflowWrap: "anywhere" }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {cleanUrl}
+        </a>
+        {trailing}
+      </React.Fragment>
+    );
+  });
+};
+
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
+const formatBytes = (bytes, decimals = 2) => {
+  if (!+bytes) return "0 Bytes";
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ["Bytes", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+};
+
+const getFileIcon = (fileName = "", type = "file", size = 24) => {
+  if (type === "image") return <FaFileImage size={size} color="#0d6efd" />;
+  if (type === "video") return <FaFileVideo size={size} color="#7c3aed" />;
+
+  const ext = fileName.split(".").pop()?.toLowerCase();
+  if (ext === "pdf") return <FaFilePdf size={size} color="#e2574c" />;
+  if (["doc", "docx"].includes(ext)) return <FaFileWord size={size} color="#1b5eb8" />;
+  if (["xls", "xlsx", "csv"].includes(ext)) return <FaFileExcel size={size} color="#107c41" />;
+  return <FaFileAlt size={size} color="#555" />;
+};
+
+const AttachmentInfo = ({ message }) => (
+  <div className="d-flex align-items-center gap-2 mt-2 rounded border bg-white px-2 py-1" style={{ minWidth: 0 }}>
+    <div className="flex-shrink-0">{getFileIcon(message.fileName, message.type, 22)}</div>
+    <div className="min-w-0 flex-grow-1">
+      <div className="text-truncate fw-semibold" style={{ fontSize: 13 }} title={message.fileName}>
+        {message.fileName || (message.type === "image" ? "Hinh anh" : message.type === "video" ? "Video" : "Tai lieu")}
+      </div>
+      <div className="text-muted" style={{ fontSize: 11 }}>{formatBytes(message.fileSize)}</div>
+    </div>
+    <a href={message.fileUrl} target="_blank" download={message.fileName} rel="noreferrer" className="btn btn-sm btn-outline-primary rounded-circle d-flex align-items-center justify-content-center" style={{ width: 30, height: 30 }}>
+      <FaDownload size={11} />
+    </a>
+  </div>
+);
 
 export default function ChatBox({
   selected,
@@ -42,6 +115,7 @@ export default function ChatBox({
   friendSection,
   setHasNewFriendRequest,
   setUnreadMap,
+  onFriendRemoved,
 }) {
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
@@ -55,10 +129,31 @@ export default function ChatBox({
   const [friendActionError, setFriendActionError] = useState("");
   const [friendActionSuccess, setFriendActionSuccess] = useState("");
   const [processingRequestId, setProcessingRequestId] = useState("");
+  const [processingFriendId, setProcessingFriendId] = useState("");
 
   const bottomRef = useRef(null);
   const myId = localStorage.getItem("userId");
   const conversationId = selected?.conversationId || selected?._id;
+  const selectedMembers = Array.isArray(selected?.members) ? selected.members : [];
+  const getMemberUser = (member) => member?.user || member;
+  const getMemberUserId = (member) => {
+    const memberUser = getMemberUser(member);
+    if (!memberUser) return null;
+    if (typeof memberUser === "object") return memberUser._id || memberUser.id || null;
+    return memberUser;
+  };
+  const selectedPartnerMember = selectedMembers.find((member) => {
+    const memberId = getMemberUserId(member);
+    return memberId && String(memberId) !== String(myId);
+  });
+  const selectedPartnerUser = getMemberUser(selectedPartnerMember);
+  const partnerUnavailable = Boolean(
+    selected?.partnerDeleted ||
+    (typeof selectedPartnerUser === "object" && (selectedPartnerUser?.isDeleted || selectedPartnerUser?.isLocked))
+  );
+  const friendshipStatus = selected?.friendshipStatus || "accepted";
+  const notFriends = selected?.type === "private" && friendshipStatus !== "accepted";
+  const chatLocked = partnerUnavailable || notFriends || selected?.canSendMessage === false;
 
   //CALL
   const [incomingCallDataGlobal, setIncomingCallDataGlobal] = useState(null);
@@ -77,7 +172,10 @@ export default function ChatBox({
   const [pinnedMessages, setPinnedMessages] = useState([]);
   const [highlightId, setHighlightId] = useState(null);
   const [reactionHoverId, setReactionHoverId] = useState(null);
+  const [typingUsers, setTypingUsers] = useState({});
   const containerRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
+  const isTypingRef = useRef(false);
   const [cursor, setCursor] = useState(null);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -85,6 +183,10 @@ export default function ChatBox({
   const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
   const isFirstLoad = useRef(true);
   const [onlineUsers, setOnlineUsers] = useState({});
+  const [showUserInfo, setShowUserInfo] = useState(false);
+  const [userInfoLoading, setUserInfoLoading] = useState(false);
+  const [userInfoError, setUserInfoError] = useState("");
+  const [userInfo, setUserInfo] = useState(null);
 
   //Chuyển tiếp 
   const [showForwardModal, setShowForwardModal] = useState(false);
@@ -110,6 +212,21 @@ export default function ChatBox({
   };
 
   //LOGIN CALL (Toàn)
+  const handleReaction = async (msg, type) => {
+    try {
+      const res = await reactMessageAPI({ messageId: msg._id, type, reactionType: type });
+      if (res?.success) {
+        setMessages((prev) =>
+          prev.map((m) => (m._id === msg._id ? res.data || m : m))
+        );
+      }
+      setReactionHoverId(null);
+      setMenuId(null);
+    } catch (err) {
+      console.error("react error:", err);
+    }
+  };
+
   // ====================================================
   // 1. GLOBAL SOCKET: LUÔN LẮNG NGHE CUỘC GỌI TỚI
   // ====================================================
@@ -181,7 +298,20 @@ export default function ChatBox({
         return;
       }
 
-      if (isAtBottomRef.current) {
+      const msgSenderId =
+        msg.senderId && typeof msg.senderId === "object"
+          ? msg.senderId._id || msg.senderId.id
+          : msg.senderId;
+
+      if (msgSenderId) {
+        setTypingUsers((prev) => {
+          const next = { ...prev };
+          delete next[msgSenderId];
+          return next;
+        });
+      }
+
+      if (String(msgSenderId) !== String(myId) && isAtBottomRef.current) {
         emitSeen();
       }
 
@@ -205,31 +335,16 @@ export default function ChatBox({
       }
     };
 
-    const handleSeen = ({ conversationId, userId }) => {
+    const handleSeen = ({ conversationId, userId, seenMessages = [] }) => {
       if (String(conversationId) !== String(selected?._id)) return;
       if (String(userId) === String(myId)) return;
 
       setMessages((prev) =>
         prev.map((msg) => {
-          const senderId =
-            typeof msg.senderId === "object"
-              ? msg.senderId._id
-              : msg.senderId;
-
-          if (String(senderId) === String(myId)) {
-            return { ...msg, status: "seen" };
-          }
-
-          return msg;
+          const updated = seenMessages.find((m) => String(m._id) === String(msg._id));
+          return updated ? { ...msg, ...updated } : msg;
         })
       );
-
-      if (String(userId) !== String(myId)) return;
-
-      setUnreadMap(prev => ({
-        ...prev,
-        [conversationId]: 0
-      }));
     };
 
     const handleEdited = (msg) => {
@@ -264,18 +379,41 @@ export default function ChatBox({
       );
     };
 
+    const handleDeletedForMe = ({ messageId }) => {
+      setMessages((prev) => prev.filter((m) => String(m._id) !== String(messageId)));
+    };
+    const handleTyping = ({ conversationId, userId, isTyping }) => {
+      if (String(conversationId) !== String(roomId)) return;
+      if (!userId || String(userId) === String(myId)) return;
+
+      setTypingUsers((prev) => {
+        const next = { ...prev };
+        if (isTyping) {
+          next[userId] = selected?.name || "Nguoi dung";
+        } else {
+          delete next[userId];
+        }
+        return next;
+      });
+    };
+
     socket.on("newMessage", handleNewMessage);
     socket.on("message_seen", handleSeen);
     socket.on("message_edited", handleEdited);
     socket.on("message_deleted", handleDeleted);
+    socket.on("message_deleted_for_me", handleDeletedForMe);
+    socket.on("typing", handleTyping);
 
-    socket.on("message_reaction", (msg) => {
+    const handleReactionSocket = (msg) => {
       setMessages((prev) =>
         prev.map((m) =>
           m._id === msg._id ? msg : m
         )
       );
-    });
+    };
+
+    socket.on("message_reaction", handleReactionSocket);
+    socket.on("message_reacted", handleReactionSocket);
 
     const handlePinnedRealtime = (data) => {
       const pins = normalizePinnedMessages(data?.pinnedMessages || []);
@@ -292,7 +430,15 @@ export default function ChatBox({
       socket.off("message_seen", handleSeen);
       socket.off("message_edited", handleEdited);
       socket.off("message_deleted", handleDeleted);
+      socket.off("message_deleted_for_me", handleDeletedForMe);
+      socket.off("typing", handleTyping);
       socket.off("message_pinned", handlePinnedRealtime);
+      socket.off("message_reaction", handleReactionSocket);
+      socket.off("message_reacted", handleReactionSocket);
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      if (isTypingRef.current) socket.emit("typing", { conversationId: roomId, isTyping: false });
+      isTypingRef.current = false;
+      setTypingUsers({});
     };
   }, [selected, tab]);
 
@@ -496,6 +642,37 @@ export default function ChatBox({
     loadFriendBoxData();
   }, [tab, friendSection]);
 
+  const handleRemoveFriend = async (friendId) => {
+    if (!friendId || processingFriendId) return;
+
+    const confirmed = window.confirm("Bạn có chắc muốn hủy kết bạn với người này?");
+    if (!confirmed) return;
+
+    try {
+      setProcessingFriendId(friendId);
+      setFriendActionError("");
+      setFriendActionSuccess("");
+
+      const res = await removeFriendAPI(friendId);
+
+      if (res?.success) {
+        setFriends((prev) => prev.filter((friend) => String(friend._id) !== String(friendId)));
+        onFriendRemoved?.({
+          friendId,
+          friendshipStatus: res?.data?.friendshipStatus || "rejected",
+        });
+        setFriendActionSuccess("Đã hủy kết bạn. Chưa kết bạn nên không thể nhắn tin tiếp.");
+      } else {
+        setFriendActionError(res?.message || "Hủy kết bạn thất bại");
+      }
+    } catch (err) {
+      console.error("removeFriend error:", err);
+      setFriendActionError("Hủy kết bạn thất bại");
+    } finally {
+      setProcessingFriendId("");
+    }
+  };
+
   useEffect(() => {
     let cleanup = null;
     let retryTimer = null;
@@ -527,6 +704,10 @@ export default function ChatBox({
         await loadFriendBoxData();
       };
 
+      const handleFriendRemovedRealtime = async () => {
+        await loadFriendBoxData();
+      };
+
       const handleNotificationRealtime = async () => {
         await loadFriendBoxData();
       };
@@ -535,6 +716,7 @@ export default function ChatBox({
       onFriendRequestSent(handleFriendRequestSentRealtime);
       onFriendRequestAccepted(handleFriendAcceptedRealtime);
       onFriendRequestRejected(handleFriendRejectedRealtime);
+      onFriendRemoved(handleFriendRemovedRealtime);
       onNewNotification(handleNotificationRealtime);
 
       cleanup = () => {
@@ -542,6 +724,7 @@ export default function ChatBox({
         offFriendRequestSent(handleFriendRequestSentRealtime);
         offFriendRequestAccepted(handleFriendAcceptedRealtime);
         offFriendRequestRejected(handleFriendRejectedRealtime);
+        offFriendRemoved(handleFriendRemovedRealtime);
         offNewNotification(handleNotificationRealtime);
       };
     };
@@ -609,6 +792,45 @@ export default function ChatBox({
     });
   };
 
+  const emitTyping = (isTyping) => {
+    const socket = getSocket();
+    const roomId = selected?.conversationId || selected?._id;
+    if (!socket || !roomId || chatLocked) return;
+
+    socket.emit("typing", {
+      conversationId: roomId,
+      isTyping,
+    });
+  };
+
+  const stopTyping = () => {
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = null;
+
+    if (isTypingRef.current) {
+      emitTyping(false);
+      isTypingRef.current = false;
+    }
+  };
+
+  const handleMessageInputChange = (e) => {
+    const value = e.target.value;
+    setMessage(value);
+
+    if (!value.trim()) {
+      stopTyping();
+      return;
+    }
+
+    if (!isTypingRef.current) {
+      emitTyping(true);
+      isTypingRef.current = true;
+    }
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(stopTyping, 1200);
+  };
+
   useEffect(() => {
     if (isAtBottomRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -618,6 +840,19 @@ export default function ChatBox({
   const handleEmojiClick = (emojiData) => {
     setMessage((prev) => prev + emojiData.emoji);
     setShowEmoji(false);
+  };
+
+  const handleFileChange = (e) => {
+    const selectedFile = e.target.files?.[0];
+    e.target.value = null;
+    if (!selectedFile) return;
+
+    if (selectedFile.size > MAX_FILE_SIZE) {
+      alert("Khong gui duoc file tren 10MB");
+      return;
+    }
+
+    setFile(selectedFile);
   };
 
   const uploadFile = async (selectedFile) => {
@@ -688,19 +923,29 @@ export default function ChatBox({
       }));
     };
 
+    const requestOnlineUsers = () => {
+      socket.emit("get_online_users");
+    };
+
     socket.on("online_list", handleOnlineList);
     socket.on("user_online", handleUserOnline);
     socket.on("user_offline", handleUserOffline);
+    socket.on("connect", requestOnlineUsers);
+
+    requestOnlineUsers();
 
     return () => {
       socket.off("online_list", handleOnlineList);
       socket.off("user_online", handleUserOnline);
       socket.off("user_offline", handleUserOffline);
+      socket.off("connect", requestOnlineUsers);
     };
   }, []);
 
   const sendMessage = async () => {
     if (!selected?._id) return;
+    if (chatLocked) return;
+    stopTyping();
 
     if (editingMessage) {
       const res = await editMessageAPI({
@@ -742,6 +987,11 @@ export default function ChatBox({
     let type = "text";
 
     if (file) {
+      if (file.size > MAX_FILE_SIZE) {
+        alert("Khong gui duoc file tren 10MB");
+        setFile(null);
+        return;
+      }
       fileUrl = await uploadFile(file);
       if (file.type.startsWith("image")) type = "image";
       else if (file.type.startsWith("video")) type = "video";
@@ -799,6 +1049,15 @@ export default function ChatBox({
   };
 
   // ================= Chuyển tiếp =================
+  const handleDeleteForMe = async (msg) => {
+    const res = await deleteMessageForMeAPI({ messageId: msg._id });
+    if (res?.success) {
+      setMessages((prev) => prev.filter((m) => String(m._id) !== String(msg._id)));
+    } else {
+      alert(res?.message || "Khong the xoa tin nhan phia ban");
+    }
+  };
+
   const handleOpenForwardModal = async (msg) => {
     setMessageToForward(msg);
     const res = await getConversationsAPI();
@@ -915,8 +1174,16 @@ export default function ChatBox({
   };
 
   const renderMessage = (m, index) => {
+    const sender = m?.senderId;
     const senderId =
-      typeof m.senderId === "object" ? m.senderId._id : m.senderId;
+      sender && typeof sender === "object" ? sender._id || sender.id : sender;
+    const senderDeleted = !sender || (typeof sender === "object" && (sender.isDeleted || sender.isLocked));
+    const senderName =
+      senderDeleted
+        ? "Tai khoan bi khoa"
+        : typeof sender === "object"
+          ? sender.fullName || sender.username || "Nguoi dung"
+          : "Nguoi dung";
 
     const isMe = String(senderId) === String(myId);
     const isLast = index === messages.length - 1;
@@ -946,8 +1213,9 @@ export default function ChatBox({
         {!isMe && (
           <img
             src={
+              (typeof sender === "object" && sender?.avatar) ||
               selected.avatar ||
-              `https://ui-avatars.com/api/?name=${selected.name || "U"}`
+              `https://ui-avatars.com/api/?name=${senderName || "U"}`
             }
             alt="avatar"
             className="rounded-circle me-2 align-self-end"
@@ -1048,6 +1316,20 @@ export default function ChatBox({
               >
                 <span className="me-3 text-secondary"><FaThumbtack size={14} /></span>
                 Ghim
+              </div>
+
+              <div
+                className="d-flex align-items-center px-3 py-2 text-danger hover-bg-danger"
+                style={{ cursor: "pointer", transition: "0.2s" }}
+                onMouseOver={(e) => e.currentTarget.style.backgroundColor = "#ffe5e5"}
+                onMouseOut={(e) => e.currentTarget.style.backgroundColor = "transparent"}
+                onClick={() => {
+                  handleDeleteForMe(m);
+                  setMenuId(null);
+                }}
+              >
+                <span className="me-3"><FaTrash size={14} /></span>
+                Xóa phía tôi
               </div>
 
               {isMe && (
@@ -1216,29 +1498,40 @@ export default function ChatBox({
             <>
               {m.type === "text" && (
                 <div style={{ wordBreak: "break-word", fontSize: "15px" }}>
-                  {m.content}
+                  {renderTextWithLinks(m.content)}
                 </div>
               )}
 
               {m.type === "image" && (
-                <img
-                  src={m.fileUrl}
-                  alt=""
-                  style={{
-                    maxWidth: "100%",
-                    borderRadius: "8px",
-                    marginTop: "5px",
-                  }}
-                />
+                <div>
+                  <img
+                    src={m.fileUrl}
+                    alt={m.fileName || ""}
+                    style={{
+                      maxWidth: "100%",
+                      borderRadius: "8px",
+                      marginTop: "5px",
+                      display: "block",
+                    }}
+                  />
+                  <AttachmentInfo message={m} />
+                </div>
               )}
 
               {m.type === "video" && (
-                <video controls style={{ maxWidth: "100%" }}>
-                  <source src={m.fileUrl} />
-                </video>
+                <div>
+                  <video controls style={{ maxWidth: "100%", borderRadius: "8px", display: "block" }}>
+                    <source src={m.fileUrl} />
+                  </video>
+                  <AttachmentInfo message={m} />
+                </div>
               )}
 
-              {m.type === "file" && (
+              {m.type === "file" && m.fileUrl && (
+                <AttachmentInfo message={m} />
+              )}
+
+              {m.type === "file" && !m.fileUrl && (
                 <a href={m.fileUrl} target="_blank" rel="noreferrer">
                   📄 {m.fileName}
                 </a>
@@ -1364,6 +1657,14 @@ export default function ChatBox({
         </div>
 
         <div className="flex-grow-1 p-3 overflow-auto">
+          {friendActionError && (
+            <div className="alert alert-danger py-2">{friendActionError}</div>
+          )}
+
+          {friendActionSuccess && (
+            <div className="alert alert-success py-2">{friendActionSuccess}</div>
+          )}
+
           {friends.length === 0 ? (
             <div className="text-center text-muted">Bạn hiện chưa có bạn bè</div>
           ) : (
@@ -1376,21 +1677,32 @@ export default function ChatBox({
               return (
                 <div
                   key={friend._id}
-                  className="d-flex align-items-center p-2 border rounded mb-2"
+                  className="d-flex align-items-center justify-content-between gap-2 p-2 border rounded mb-2"
                 >
-                  <img
-                    src={avatar}
-                    alt=""
-                    className="rounded-circle me-2"
-                    width="45"
-                    height="45"
-                  />
-                  <div>
-                    <div className="fw-bold">
-                      {friend.fullName || friend.username || "User"}
+                  <div className="d-flex align-items-center min-w-0">
+                    <img
+                      src={avatar}
+                      alt=""
+                      className="rounded-circle me-2 flex-shrink-0"
+                      width="45"
+                      height="45"
+                    />
+                    <div className="min-w-0">
+                      <div className="fw-bold text-truncate">
+                        {friend.fullName || friend.username || "User"}
+                      </div>
+                      <small className="text-muted text-truncate d-block">{friend.email}</small>
                     </div>
-                    <small className="text-muted">{friend.email}</small>
                   </div>
+
+                  <button
+                    type="button"
+                    className="btn btn-outline-danger btn-sm flex-shrink-0"
+                    disabled={processingFriendId === friend._id}
+                    onClick={() => handleRemoveFriend(friend._id)}
+                  >
+                    {processingFriendId === friend._id ? "Đang hủy..." : "Hủy kết bạn"}
+                  </button>
                 </div>
               );
             })
@@ -1554,18 +1866,30 @@ export default function ChatBox({
 
 
   const partnerId =
-    selected?.members?.find(
-      (m) =>
-        String(m?.user?._id || m?._id) !== String(myId)
-    )?.user?._id
-    ||
-    selected?.members?.find(
-      (m) => String(m?._id) !== String(myId)
-    )?._id
-    ||
-    selected?.userId
-    ||
+    getMemberUserId(selectedPartnerMember) ||
+    selected?.userId ||
     null;
+  const typingNames = Object.values(typingUsers);
+  const typingText = typingNames.length > 0 ? `${typingNames[0]} dang nhap...` : "";
+
+  const openUserInfoModal = async () => {
+    if (!partnerId) return;
+
+    setShowUserInfo(true);
+    setUserInfoLoading(true);
+    setUserInfoError("");
+    setUserInfo(null);
+
+    const res = await getPrivateUserInfoAPI(partnerId);
+
+    if (res?.success) {
+      setUserInfo(res.data);
+    } else {
+      setUserInfoError(res?.message || "Khong the lay thong tin nguoi dung");
+    }
+
+    setUserInfoLoading(false);
+  };
 
   return (
     <div className="col d-flex flex-column h-100">
@@ -1605,7 +1929,7 @@ export default function ChatBox({
             <h6 className="mb-0 fw-bold">{selected.name}</h6>
 
             <small style={{ color: "#666" }}>
-              {onlineUsers[partnerId]
+              {partnerUnavailable ? "Tai khoan bi khoa" : notFriends ? "Chua ket ban" : onlineUsers[partnerId]
                 ? "Đang hoạt động"
                 : onlineUsers[`lastSeen_${partnerId}`]
 
@@ -1618,16 +1942,27 @@ export default function ChatBox({
         </div>
 
         <div className="d-flex gap-2">
+          <button
+            className="btn rounded-circle border-0"
+            style={{ width: 40, height: 40, background: "#f1f3f5", color: "#495057" }}
+            onClick={openUserInfoModal}
+            title="Thong tin nguoi dung"
+          >
+            <FaInfo size={16} />
+          </button>
+
           {/* CALL AUDIO */}
           <button
             className="btn rounded-circle border-0"
             style={{ width: 40, height: 40, background: "#e5efff", color: "#0068ff" }}
             onClick={() => {
+              if (chatLocked) return;
               setIsCallUIOpen(true);
               setTimeout(() => {
                 videoCallRef.current?.startCall("audio", selected);
               }, 100);
             }}
+            disabled={chatLocked}
           >
             <FaPhoneAlt size={16} />
           </button>
@@ -1637,11 +1972,13 @@ export default function ChatBox({
             className="btn rounded-circle border-0"
             style={{ width: 40, height: 40, background: "#e5efff", color: "#0068ff" }}
             onClick={() => {
+              if (chatLocked) return;
               setIsCallUIOpen(true);
               setTimeout(() => {
                 videoCallRef.current?.startCall("video", selected);
               }, 100);
             }}
+            disabled={chatLocked}
           >
             <FaVideo size={18} />
           </button>
@@ -1776,11 +2113,17 @@ export default function ChatBox({
       </div>
 
       {/* ↩️ REPLY PREVIEW */}
+      {typingText && (
+        <div className="px-3 py-1 bg-white border-top text-muted" style={{ fontSize: 13, fontStyle: "italic" }}>
+          {typingText}
+        </div>
+      )}
+
       {replyMessage && (
         <div className="px-3 py-2 bg-light border-top">
           ↩ {
-            typeof replyMessage.senderId === "object"
-              ? replyMessage.senderId.fullName
+            replyMessage.senderId && typeof replyMessage.senderId === "object"
+              ? replyMessage.senderId.fullName || "Tai khoan bi khoa"
               : "Người dùng"
           }: {replyMessage.content}
         </div>
@@ -1788,95 +2131,102 @@ export default function ChatBox({
 
       {/* INPUT */}
       <div className="p-3 border-top bg-white position-relative">
-
-        {showEmoji && (
-          <div className="shadow rounded" style={{ position: "absolute", bottom: "70px", right: "20px", zIndex: 10 }}>
-            <EmojiPicker onEmojiClick={handleEmojiClick} />
+        {chatLocked ? (
+          <div className="d-flex align-items-center justify-content-center gap-2 text-muted bg-light border rounded-pill px-3 py-2">
+            <FaLock size={16} />
+            <span>
+              {partnerUnavailable
+                ? "Tai khoan nay da bi xoa hoac bi khoa, ban khong the nhan tin tiep."
+                : "Chua ket ban, ban chi co the xem lai cuoc tro chuyen truoc do."}
+            </span>
           </div>
-        )}
+        ) : (
+          <>
+            {showEmoji && (
+              <div className="shadow rounded" style={{ position: "absolute", bottom: "70px", right: "20px", zIndex: 10 }}>
+                <EmojiPicker onEmojiClick={handleEmojiClick} />
+              </div>
+            )}
 
-        {file && (
-          <div className="mb-2 d-flex">
-            <div className="position-relative border rounded p-1 bg-light shadow-sm" style={{ display: "inline-block" }}>
-              <button
-                onClick={() => setFile(null)}
-                className="btn btn-danger rounded-circle position-absolute d-flex align-items-center justify-content-center"
-                style={{ top: "-8px", right: "-8px", width: "20px", height: "20px", padding: 0, fontSize: "12px", zIndex: 2 }}
-                title="Xóa file"
-              >
-                ✕
-              </button>
+            {file && (
+              <div className="mb-2 d-flex">
+                <div className="position-relative border rounded p-1 bg-light shadow-sm" style={{ display: "inline-block" }}>
+                  <button
+                    onClick={() => setFile(null)}
+                    className="btn btn-danger rounded-circle position-absolute d-flex align-items-center justify-content-center"
+                    style={{ top: "-8px", right: "-8px", width: "20px", height: "20px", padding: 0, fontSize: "12px", zIndex: 2 }}
+                    title="Xoa file"
+                  >
+                    x
+                  </button>
 
-              {file.type && file.type.startsWith("image/") ? (
-                <img
-                  src={URL.createObjectURL(file)}
-                  alt="Preview"
-                  style={{ height: "60px", width: "auto", borderRadius: "4px", objectFit: "cover" }}
-                />
-              ) : (
-                <div className="d-flex align-items-center gap-2 px-2 py-1" style={{ height: "60px" }}>
-                  <span style={{ fontSize: "24px" }}>📄</span>
-                  <div className="text-truncate" style={{ maxWidth: "150px", fontSize: "0.85rem" }} title={file.name}>
-                    {file.name}
-                  </div>
+                  {file.type && file.type.startsWith("image/") ? (
+                    <img
+                      src={URL.createObjectURL(file)}
+                      alt="Preview"
+                      style={{ height: "60px", width: "auto", borderRadius: "4px", objectFit: "cover" }}
+                    />
+                  ) : (
+                    <div className="d-flex align-items-center gap-2 px-2 py-1" style={{ height: "60px" }}>
+                      <span style={{ fontSize: "24px" }}>File</span>
+                      <div className="text-truncate" style={{ maxWidth: "150px", fontSize: "0.85rem" }} title={file.name}>
+                        {file.name}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
+              </div>
+            )}
+
+            <div className="d-flex gap-2 align-items-center">
+              <input
+                type="file"
+                id="file-upload"
+                style={{ display: "none" }}
+                onChange={handleFileChange}
+              />
+              <label
+                htmlFor="file-upload"
+                className="btn btn-light rounded-circle d-flex align-items-center justify-content-center text-secondary m-0"
+                style={{ width: "40px", height: "40px", cursor: "pointer", fontSize: "1.2rem", flexShrink: 0 }}
+              >
+                <FaPaperclip size={16} />
+              </label>
+
+              <div className="d-flex align-items-center bg-light rounded-pill px-3 py-1 flex-grow-1 border">
+                <input
+                  value={message}
+                  onFocus={emitSeen}
+                  onChange={handleMessageInputChange}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") sendMessage();
+                  }}
+                  className="form-control border-0 bg-transparent shadow-none px-0"
+                  style={{ outline: "none" }}
+                  placeholder="Nhap tin nhan..."
+                />
+
+                <button
+                  onClick={() => setShowEmoji(!showEmoji)}
+                  className="btn btn-link text-decoration-none border-0 p-0 ms-2 flex-shrink-0"
+                  style={{ fontSize: "1.2rem", color: "#888" }}
+                >
+                  <FaSmile size={18} />
+                </button>
+              </div>
+
+              <button
+                onClick={sendMessage}
+                className="btn btn-primary rounded-circle d-flex align-items-center justify-content-center flex-shrink-0"
+                style={{ width: "40px", height: "40px" }}
+                disabled={!message.trim() && !file}
+              >
+                <FaPaperPlane size={15} />
+              </button>
             </div>
-          </div>
+          </>
         )}
-
-        <div className="d-flex gap-2 align-items-center">
-
-          <input
-            type="file"
-            id="file-upload"
-            style={{ display: "none" }}
-            onChange={(e) => {
-              if (e.target.files[0]) setFile(e.target.files[0]);
-              e.target.value = null;
-            }}
-          />
-          <label
-            htmlFor="file-upload"
-            className="btn btn-light rounded-circle d-flex align-items-center justify-content-center text-secondary m-0"
-            style={{ width: "40px", height: "40px", cursor: "pointer", fontSize: "1.2rem", flexShrink: 0 }}
-          >
-            📎
-          </label>
-
-          <div className="d-flex align-items-center bg-light rounded-pill px-3 py-1 flex-grow-1 border">
-            <input
-              value={message}
-              onFocus={emitSeen}
-              onChange={(e) => setMessage(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") sendMessage();
-              }}
-              className="form-control border-0 bg-transparent shadow-none px-0"
-              style={{ outline: "none" }}
-              placeholder="Nhập tin nhắn..."
-            />
-
-            <button
-              onClick={() => setShowEmoji(!showEmoji)}
-              className="btn btn-link text-decoration-none border-0 p-0 ms-2 flex-shrink-0"
-              style={{ fontSize: "1.2rem", color: "#888" }}
-            >
-              😊
-            </button>
-          </div>
-
-          <button
-            onClick={sendMessage}
-            className="btn btn-primary rounded-circle d-flex align-items-center justify-content-center flex-shrink-0"
-            style={{ width: "40px", height: "40px" }}
-            disabled={!message.trim() && !file}
-          >
-            ➤
-          </button>
-        </div>
       </div>
-
       {activeSocket && user && isCallUIOpen && (
         <VideoCall
           ref={videoCallRef}
@@ -1889,6 +2239,93 @@ export default function ChatBox({
       )}
 
       {/* 👉 MODAL CHUYỂN TIẾP TIN NHẮN TẠI ĐÂY */}
+      {showUserInfo && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.5)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            zIndex: 99999,
+          }}
+          onClick={() => setShowUserInfo(false)}
+        >
+          <div
+            className="bg-white rounded shadow p-4"
+            style={{ width: "420px", maxWidth: "95%", maxHeight: "80vh", overflowY: "auto" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="d-flex justify-content-between align-items-center mb-3">
+              <h5 className="fw-bold m-0">Thong tin nguoi dung</h5>
+              <button className="btn-close" onClick={() => setShowUserInfo(false)}></button>
+            </div>
+
+            {userInfoLoading ? (
+              <div className="text-center text-muted py-4">Dang tai...</div>
+            ) : userInfoError ? (
+              <div className="alert alert-danger py-2">{userInfoError}</div>
+            ) : (
+              <>
+                <div className="text-center pb-3 border-bottom">
+                  <img
+                    src={
+                      userInfo?.user?.avatar ||
+                      selected?.avatar ||
+                      `https://ui-avatars.com/api/?name=${userInfo?.user?.fullName || selected?.name || "U"}`
+                    }
+                    alt=""
+                    className="rounded-circle mb-2"
+                    width="92"
+                    height="92"
+                    style={{ objectFit: "cover" }}
+                  />
+                  <h5 className="fw-bold mb-1">
+                    {userInfo?.user?.fullName || userInfo?.user?.username || selected?.name || "Nguoi dung"}
+                  </h5>
+                  {userInfo?.user?.email && (
+                    <div className="text-muted small">{userInfo.user.email}</div>
+                  )}
+                </div>
+
+                <div className="mt-3">
+                  <div className="fw-semibold mb-2">
+                    Nhom chung ({userInfo?.commonGroups?.length || 0})
+                  </div>
+
+                  {!userInfo?.commonGroups?.length ? (
+                    <div className="text-muted text-center py-3 border rounded">
+                      Khong co nhom chung
+                    </div>
+                  ) : (
+                    userInfo.commonGroups.map((group) => (
+                      <div
+                        key={group._id}
+                        className="d-flex align-items-center gap-3 p-2 border rounded mb-2"
+                      >
+                        <img
+                          src={group.avatar || `https://ui-avatars.com/api/?name=${group.name || "G"}`}
+                          alt=""
+                          className="rounded-circle"
+                          width="42"
+                          height="42"
+                          style={{ objectFit: "cover" }}
+                        />
+                        <div className="min-w-0">
+                          <div className="fw-semibold text-truncate">{group.name || "Nhom chat"}</div>
+                          <small className="text-muted">{group.memberCount || 0} thanh vien</small>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {showForwardModal && (
         <div
           style={{
@@ -1972,3 +2409,7 @@ export default function ChatBox({
     </div>
   );
 }
+
+
+
+

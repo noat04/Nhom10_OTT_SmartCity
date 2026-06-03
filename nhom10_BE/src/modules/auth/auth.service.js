@@ -1,5 +1,6 @@
 const User = require('../../../models/user');
 const OTP = require('../../../models/otp.model');
+const LoginLog = require('../../../models/loginLog');
 
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
@@ -91,7 +92,7 @@ class AuthService {
     }
 
     // ================= LOGIN =================
-    async login(email, password) {
+    async login(email, password, meta = {}) {
         if (!email || !password) {
             throw new Error("Thiếu email hoặc password");
         }
@@ -99,6 +100,9 @@ class AuthService {
         const user = await User.findOne({ email }).select('+password');
 
         if (!user) throw new Error("Email không tồn tại");
+        if (user.isDeleted) throw new Error("Tai khoan da bi xoa");
+
+        if (user.isLocked) throw new Error(user.lockReason || "Tai khoan dang bi khoa");
 
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) throw new Error("Sai mật khẩu");
@@ -108,8 +112,9 @@ class AuthService {
         io.to(user._id.toString()).emit("force_logout");
 
         // 🔥 Tạo token
+        const tokenId = `${user._id}-${Date.now()}`;
         const token = jwt.sign(
-            { id: user._id },
+            { id: user._id, tokenId },
             process.env.JWT_SECRET || "SmartCity_Nhom10_Secret_Key_2026",
             { expiresIn: '1d' }
         );
@@ -117,6 +122,15 @@ class AuthService {
         user.currentToken = token;
         user.status = "online";
         await user.save();
+
+        await LoginLog.create({
+            userId: user._id,
+            email: user.email,
+            ip: meta.ip || "",
+            userAgent: meta.userAgent || "",
+            status: "success",
+            tokenId
+        });
 
         return {
             success: true,
@@ -128,7 +142,9 @@ class AuthService {
                 fullName: user.fullName,
                 phone: user.phone,
                 bio: user.bio,
-                avatar: user.avatar
+                avatar: user.avatar,
+                role: user.role,
+                isAdmin: user.role === 'admin'
             }
         };
     }

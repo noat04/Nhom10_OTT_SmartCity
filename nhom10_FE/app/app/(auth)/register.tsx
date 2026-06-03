@@ -1,6 +1,6 @@
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { Text, TextInput, TouchableOpacity, View } from "react-native";
+import { StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { registerSendOtpAPI } from "../../service/auth.api";
 
 export default function Register() {
@@ -47,7 +47,7 @@ export default function Register() {
           type: "register",
         },
       });
-    } catch (err) {
+    } catch (err: any) {
       alert(err.response?.data?.message || "Lỗi gửi OTP");
     } finally {
       setLoading(false);
@@ -116,7 +116,7 @@ export default function Register() {
   );
 }
 
-const styles = {
+const styles = StyleSheet.create({
   input: {
     borderWidth: 1,
     marginBottom: 10,
@@ -129,4 +129,4 @@ const styles = {
     alignItems: "center",
     borderRadius: 5,
   },
-};
+});

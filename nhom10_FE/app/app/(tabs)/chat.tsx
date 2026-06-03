@@ -1,12 +1,15 @@
-import { useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
+  Modal,
   RefreshControl,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -14,18 +17,55 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import TopSearchBar from "../../components/TopSearchBar";
 import { useAuth } from "../../context/authContext";
-import { getConversationsAPI } from "../../service/chat.api";
+import { useNotification } from "../../context/notificationContext";
+import { createGroupAPI, getConversationsAPI } from "../../service/chat.api";
+import { getFriendsAPI } from "../../service/friend.api";
 import { getSocket } from "../../socket/socket";
 export default function ChatScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const { setChatBadgeCount } = useNotification();
 
   const [keyword, setKeyword] = useState("");
   const [conversations, setConversations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
+  const [groupName, setGroupName] = useState("");
+  const [friends, setFriends] = useState<any[]>([]);
+  const [selectedFriendIds, setSelectedFriendIds] = useState<string[]>([]);
+  const [loadingFriends, setLoadingFriends] = useState(false);
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const typingTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   const myId = user?._id || user?.id;
+
+  const getSenderId = useCallback((message: any) => {
+    return typeof message?.senderId === "object"
+      ? message.senderId?._id || message.senderId?.id
+      : message?.senderId;
+  }, []);
+
+  const hasSeenMessage = useCallback((message: any) => {
+    if (!message || !myId) return false;
+
+    const senderId = getSenderId(message);
+    if (senderId && String(senderId) === String(myId)) return true;
+
+    const seenBy = Array.isArray(message?.seenBy) ? message.seenBy : [];
+    return seenBy.some((seen: any) => {
+      const seenUserId =
+        typeof seen?.userId === "object" ? seen.userId?._id || seen.userId?.id : seen?.userId;
+      return seenUserId && String(seenUserId) === String(myId);
+    });
+  }, [getSenderId, myId]);
+
+  const getUnreadCount = useCallback((message: any) => {
+    if (!message) return 0;
+    const senderId = getSenderId(message);
+    if (!senderId || String(senderId) === String(myId)) return 0;
+    return hasSeenMessage(message) ? 0 : 1;
+  }, [getSenderId, hasSeenMessage, myId]);
 
   const getPreviewText = (message: any) => {
     if (!message) return "Chưa có tin nhắn";
@@ -85,6 +125,7 @@ export default function ChatScreen() {
 
       let displayName = "Cuộc trò chuyện";
       let displayAvatar = "https://i.pravatar.cc/150?img=12";
+      let partnerUnavailable = false;
       let partnerId = null; // 👉 BỔ SUNG BIẾN NÀY
 
       if (isGroup) {
@@ -95,6 +136,11 @@ export default function ChatScreen() {
         const otherMember = item?.members?.find(
           (m: any) => String(m?.user?._id || m?.user) !== String(myId),
         );
+        partnerUnavailable = Boolean(
+          item?.partnerDeleted ||
+          otherMember?.user?.isDeleted ||
+          otherMember?.user?.isLocked,
+        );
 
         // 👉 LẤY ID CỦA NGƯỜI KIA LƯU VÀO ĐÂY
         partnerId = otherMember?.user?._id || otherMember?.user || null;
@@ -104,6 +150,10 @@ export default function ChatScreen() {
           otherMember?.user?.name ||
           otherMember?.user?.username ||
           "Người dùng";
+
+        if (partnerUnavailable) {
+          displayName = "Tai khoan bi khoa";
+        }
 
         displayAvatar =
           otherMember?.user?.avatar ||
@@ -120,7 +170,17 @@ export default function ChatScreen() {
         name: displayName,
         img: displayAvatar,
         partnerId: partnerId, // 👉 TRẢ VỀ BIẾN NÀY
+        friendshipStatus: item?.friendshipStatus || "accepted",
+        canSendMessage:
+          item?.type === "group"
+            ? true
+            : item?.canSendMessage !== false && !partnerUnavailable,
+        partnerDeleted: partnerUnavailable,
+        isActive: item?.type === "group" ? item?.isActive !== false : true,
         msg: getPreviewText(latestMessage),
+        unreadCount: getUnreadCount(latestMessage),
+        isTyping: false,
+        typingText: "",
         updatedAt:
           latestMessage?.createdAt ||
           item?.updatedAt ||
@@ -130,7 +190,7 @@ export default function ChatScreen() {
         raw: item,
       };
     },
-    [myId],
+    [getUnreadCount, myId],
   );
 
   const loadConversations = useCallback(async () => {
@@ -180,6 +240,22 @@ export default function ChatScreen() {
   }, [myId, loadConversations]);
 
   useEffect(() => {
+    const totalUnread = conversations.reduce(
+      (sum: number, item: any) => sum + (Number(item?.unreadCount) || 0),
+      0,
+    );
+    setChatBadgeCount(totalUnread);
+  }, [conversations, setChatBadgeCount]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (myId) {
+        loadConversations();
+      }
+    }, [loadConversations, myId]),
+  );
+
+  useEffect(() => {
     if (!myId) return;
 
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -206,12 +282,19 @@ export default function ChatScreen() {
       const handleNewMessageGlobal = (message: any) => {
         if (!message?.conversationId) return;
 
+        const conversationFromMessage =
+          typeof message?.conversationId === "object"
+            ? message.conversationId
+            : null;
         const incomingConversationId = String(
           message?.conversationId?._id || message?.conversationId,
         );
 
         const sender =
           typeof message?.senderId === "object" ? message.senderId : null;
+        const senderId = getSenderId(message);
+        const isMine = senderId && String(senderId) === String(myId);
+        const nextUnreadCount = isMine ? 0 : 1;
 
         setConversations((prev) => {
           const existingIndex = prev.findIndex(
@@ -220,10 +303,28 @@ export default function ChatScreen() {
           );
 
           if (existingIndex !== -1) {
+            const conversationPatch =
+              conversationFromMessage?._id &&
+              (conversationFromMessage?.type === "group" ||
+                conversationFromMessage?.name)
+                ? normalizeConversation(conversationFromMessage)
+                : null;
             const updatedItem = {
               ...prev[existingIndex],
+              ...(conversationPatch
+                ? {
+                    type: conversationPatch.type,
+                    name: conversationPatch.name,
+                    img: conversationPatch.img,
+                    raw: conversationPatch.raw,
+                    isActive: conversationPatch.isActive,
+                  }
+                : {}),
               msg: getPreviewText(message),
               latestMessage: message,
+              unreadCount: nextUnreadCount,
+              isTyping: false,
+              typingText: "",
               updatedAt: message?.createdAt || new Date().toISOString(),
             };
 
@@ -233,6 +334,24 @@ export default function ChatScreen() {
 
             return dedupeConversations(newList);
           }
+
+          if (conversationFromMessage?._id) {
+            const normalized = normalizeConversation({
+              ...conversationFromMessage,
+              latestMessage: message,
+              updatedAt: message?.createdAt || conversationFromMessage?.updatedAt,
+            });
+            return dedupeConversations([normalized, ...prev]);
+          }
+
+          const fallbackName =
+            message?.conversationName ||
+            (message?.conversationType === "group"
+              ? "Nhom chat"
+              : sender?.fullName ||
+                sender?.name ||
+                sender?.username ||
+                "Cuoc tro chuyen");
 
           const fallbackConversation = {
             id: incomingConversationId,
@@ -250,9 +369,13 @@ export default function ChatScreen() {
               sender?.profilePicture ||
               "https://i.pravatar.cc/150?img=12",
             msg: getPreviewText(message),
+            unreadCount: nextUnreadCount,
+            isTyping: false,
+            typingText: "",
             updatedAt: message?.createdAt || new Date().toISOString(),
             latestMessage: message,
             raw: null,
+            ...(fallbackName ? { name: fallbackName } : {}),
           };
 
           return dedupeConversations([fallbackConversation, ...prev]);
@@ -305,15 +428,126 @@ export default function ChatScreen() {
         );
       };
 
+      const handleFriendRemoved = (payload: any) => {
+        const removedFriendId = String(payload?.data?.friendId || "");
+        const removedByUserId = String(payload?.data?.userId || "");
+
+        setConversations((prev) =>
+          prev.map((item: any) => {
+            if (item.type === "group") return item;
+
+            const partnerId = String(item.partnerId || "");
+            const isAffected =
+              partnerId &&
+              (partnerId === removedFriendId || partnerId === removedByUserId);
+
+            if (!isAffected) return item;
+
+            return {
+              ...item,
+              friendshipStatus: "rejected",
+              canSendMessage: false,
+              msg: item.msg || "Chỉ có thể xem lại cuộc trò chuyện trước đó",
+            };
+          }),
+        );
+      };
+
+      const handleConversationUpdated = (payload: any) => {
+        const conversation = payload?.data || payload?.group || payload;
+        if (!conversation?._id) {
+          loadConversations();
+          return;
+        }
+
+        const normalized = normalizeConversation(conversation);
+        setConversations((prev) =>
+          dedupeConversations([normalized, ...prev]),
+        );
+      };
+
+      const handleGroupDissolved = (payload: any) => {
+        const group = payload?.group || payload?.data || null;
+        const dissolvedConversationId = String(
+          payload?.conversationId || group?._id || "",
+        );
+
+        if (!dissolvedConversationId) {
+          loadConversations();
+          return;
+        }
+
+        setConversations((prev) =>
+          dedupeConversations(
+            prev.map((item: any) =>
+              String(item.conversationId) === dissolvedConversationId
+                ? {
+                  ...item,
+                  raw: group || item.raw,
+                  isActive: false,
+                  msg: "Nhóm đã giải tán",
+                  updatedAt: new Date().toISOString(),
+                }
+                : item,
+            ),
+          ),
+        );
+      };
+
+      const handleTyping = (payload: any) => {
+        const typingConversationId = String(payload?.conversationId || "");
+        const typingUserId = String(payload?.userId || "");
+        if (!typingConversationId || typingUserId === String(myId)) return;
+
+        if (typingTimersRef.current[typingConversationId]) {
+          clearTimeout(typingTimersRef.current[typingConversationId]);
+        }
+
+        setConversations((prev) =>
+          prev.map((item: any) =>
+            String(item.conversationId) === typingConversationId
+              ? {
+                  ...item,
+                  isTyping: Boolean(payload?.isTyping),
+                  typingText: payload?.isTyping ? "Dang nhap..." : "",
+                }
+              : item,
+          ),
+        );
+
+        if (payload?.isTyping) {
+          typingTimersRef.current[typingConversationId] = setTimeout(() => {
+            setConversations((prev) =>
+              prev.map((item: any) =>
+                String(item.conversationId) === typingConversationId
+                  ? { ...item, isTyping: false, typingText: "" }
+                  : item,
+              ),
+            );
+            delete typingTimersRef.current[typingConversationId];
+          }, 2500);
+        }
+      };
+
       socket.off("conversation_created");
+      socket.off("conversation_updated");
+      socket.off("group_created");
+      socket.off("group_dissolved");
       socket.off("newMessage_global");
       socket.off("message_edited");
       socket.off("message_deleted");
+      socket.off("friend_removed");
+      socket.off("typing");
 
       socket.on("conversation_created", handleConversationCreated);
+      socket.on("conversation_updated", handleConversationUpdated);
+      socket.on("group_created", handleConversationUpdated);
+      socket.on("group_dissolved", handleGroupDissolved);
       socket.on("newMessage_global", handleNewMessageGlobal);
       socket.on("message_edited", handleMessageEdited);
       socket.on("message_deleted", handleMessageDeleted);
+      socket.on("friend_removed", handleFriendRemoved);
+      socket.on("typing", handleTyping);
     };
 
     bindRealtime();
@@ -322,11 +556,18 @@ export default function ChatScreen() {
       if (retryTimer) clearTimeout(retryTimer);
       const socket = getSocket();
       socket?.off("conversation_created");
+      socket?.off("conversation_updated");
+      socket?.off("group_created");
+      socket?.off("group_dissolved");
       socket?.off("newMessage_global");
       socket?.off("message_edited");
       socket?.off("message_deleted");
+      socket?.off("friend_removed");
+      socket?.off("typing");
+      Object.values(typingTimersRef.current).forEach(clearTimeout);
+      typingTimersRef.current = {};
     };
-  }, [myId, normalizeConversation]);
+  }, [getSenderId, loadConversations, myId, normalizeConversation]);
 
   const filtered = useMemo(() => {
     const q = keyword.trim().toLowerCase();
@@ -339,8 +580,98 @@ export default function ChatScreen() {
     });
   }, [keyword, conversations]);
 
-  const handleAddFriend = () => {
-    router.push("/(tabs)/contacts");
+  const openCreateGroupModal = async () => {
+    setShowCreateGroupModal(true);
+    setGroupName("");
+    setSelectedFriendIds([]);
+    setLoadingFriends(true);
+
+    const res = await getFriendsAPI();
+    setFriends(res?.success && Array.isArray(res.data) ? res.data : []);
+    setLoadingFriends(false);
+  };
+
+  const toggleSelectedFriend = (friendId: string) => {
+    setSelectedFriendIds((prev) =>
+      prev.includes(friendId)
+        ? prev.filter((id) => id !== friendId)
+        : [...prev, friendId],
+    );
+  };
+
+  const handleCreateGroup = async () => {
+    if (!groupName.trim()) {
+      Alert.alert("Thông báo", "Nhập tên nhóm");
+      return;
+    }
+
+    if (selectedFriendIds.length === 0) {
+      Alert.alert("Thông báo", "Chọn ít nhất 1 thành viên");
+      return;
+    }
+
+    setCreatingGroup(true);
+    const res = await createGroupAPI({
+      name: groupName.trim(),
+      memberIds: selectedFriendIds,
+    });
+    setCreatingGroup(false);
+
+    if (!res?.success) {
+      Alert.alert("Lỗi", res?.message || "Không thể tạo nhóm");
+      return;
+    }
+
+    const group = res.data;
+    setShowCreateGroupModal(false);
+    await loadConversations();
+
+    if (group?._id) {
+      router.push({
+        pathname: "/group/[id]",
+        params: {
+          id: group._id,
+          conversationId: group._id,
+          name: group.name || groupName.trim(),
+          avatar: group.avatar || "",
+          type: "group",
+        },
+      } as any);
+    }
+  };
+
+  const renderFriendOption = ({ item }: any) => {
+    const friendId =
+      item?.friendInfo?._id || item?.user?._id || item?._id || item?.id;
+    if (!friendId) return null;
+
+    const selected = selectedFriendIds.includes(String(friendId));
+    const displayName =
+      item?.friendInfo?.fullName ||
+      item?.user?.fullName ||
+      item?.fullName ||
+      item?.username ||
+      "Người dùng";
+    const avatar =
+      item?.friendInfo?.avatar ||
+      item?.user?.avatar ||
+      item?.avatar ||
+      "https://i.pravatar.cc/150?img=12";
+
+    return (
+      <TouchableOpacity
+        style={styles.friendOption}
+        onPress={() => toggleSelectedFriend(String(friendId))}
+      >
+        <Image source={{ uri: avatar }} style={styles.friendOptionAvatar} />
+        <Text style={styles.friendOptionName} numberOfLines={1}>
+          {displayName}
+        </Text>
+        <View style={[styles.checkbox, selected && styles.checkboxSelected]}>
+          {selected && <Text style={styles.checkboxText}>✓</Text>}
+        </View>
+      </TouchableOpacity>
+    );
   };
 
   // const renderItem = ({ item }: any) => (
@@ -375,9 +706,17 @@ export default function ChatScreen() {
   const renderItem = ({ item }: any) => {
     // 👉 Kiểm tra loại cuộc trò chuyện để quyết định màn hình đích
     const targetPath = item.type === "group" ? "/group/[id]" : "/chat/[id]";
-
     return (
       <TouchableOpacity
+        onPressIn={() =>
+          setConversations((prev) =>
+            prev.map((conversation: any) =>
+              String(conversation.conversationId) === String(item.conversationId)
+                ? { ...conversation, unreadCount: 0, isTyping: false, typingText: "" }
+                : conversation,
+            ),
+          )
+        }
         onPress={() =>
           router.push({
             pathname: targetPath,
@@ -387,6 +726,10 @@ export default function ChatScreen() {
               name: item.name,
               avatar: item.img,
               type: item.type,
+              friendshipStatus: item.friendshipStatus,
+              canSendMessage: String(item.canSendMessage),
+              partnerDeleted: String(item.partnerDeleted),
+              isActive: String(item.isActive),
               // partnerId chỉ thực sự cần cho chat 1-1 để gọi điện
               partnerId: item.partnerId,
             },
@@ -397,13 +740,27 @@ export default function ChatScreen() {
         <Image source={{ uri: item.img }} style={styles.avatar} />
 
         <View style={{ flex: 1 }}>
-          <Text style={styles.name} numberOfLines={1}>
+          <Text style={[styles.name, item.unreadCount > 0 && styles.unreadName]} numberOfLines={1}>
             {item.name}
           </Text>
-          <Text style={styles.msg} numberOfLines={1}>
-            {item.msg}
+          <Text
+            style={[
+              styles.msg,
+              item.isTyping && styles.typingMsg,
+              item.unreadCount > 0 && styles.unreadMsg,
+            ]}
+            numberOfLines={1}
+          >
+            {item.isTyping ? item.typingText || "Dang nhap..." : item.msg}
           </Text>
         </View>
+        {item.unreadCount > 0 && (
+          <View style={styles.unreadBadge}>
+            <Text style={styles.unreadBadgeText}>
+              {item.unreadCount > 9 ? "9+" : item.unreadCount}
+            </Text>
+          </View>
+        )}
       </TouchableOpacity>
     );
   };
@@ -423,7 +780,7 @@ export default function ChatScreen() {
         value={keyword}
         onChangeText={setKeyword}
         placeholder="Tìm kiếm cuộc trò chuyện"
-        onPressAddFriend={handleAddFriend}
+        onPressAddFriend={openCreateGroupModal}
       />
 
       <FlatList
@@ -438,6 +795,74 @@ export default function ChatScreen() {
           <Text style={styles.emptyText}>Không có cuộc trò chuyện nào</Text>
         }
       />
+
+      <Modal
+        visible={showCreateGroupModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowCreateGroupModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.groupSheet}>
+            <View style={styles.sheetHeader}>
+              <TouchableOpacity onPress={() => setShowCreateGroupModal(false)}>
+                <Text style={styles.cancelText}>Hủy</Text>
+              </TouchableOpacity>
+              <Text style={styles.sheetTitle}>Tạo nhóm</Text>
+              <TouchableOpacity onPress={handleCreateGroup} disabled={creatingGroup}>
+                {creatingGroup ? (
+                  <ActivityIndicator size="small" color="#0d6efd" />
+                ) : (
+                  <Text
+                    style={[
+                      styles.createText,
+                      selectedFriendIds.length > 0 && groupName.trim()
+                        ? styles.createTextActive
+                        : null,
+                    ]}
+                  >
+                    Tạo
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            <TextInput
+              value={groupName}
+              onChangeText={setGroupName}
+              placeholder="Tên nhóm"
+              placeholderTextColor="#9ca3af"
+              style={styles.groupNameInput}
+            />
+
+            {loadingFriends ? (
+              <ActivityIndicator
+                size="large"
+                color="#0d6efd"
+                style={{ marginTop: 24 }}
+              />
+            ) : (
+              <FlatList
+                data={friends}
+                keyExtractor={(item: any, index) =>
+                  String(
+                    item?.friendInfo?._id ||
+                    item?.user?._id ||
+                    item?._id ||
+                    item?.id ||
+                    index,
+                  )
+                }
+                renderItem={renderFriendOption}
+                contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 }}
+                ListEmptyComponent={
+                  <Text style={styles.emptyText}>Bạn chưa có bạn bè để tạo nhóm</Text>
+                }
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -473,11 +898,121 @@ const styles = StyleSheet.create({
     color: "#6b7280",
     marginTop: 4,
   },
+  unreadName: {
+    color: "#0f172a",
+  },
+  unreadMsg: {
+    color: "#111827",
+    fontWeight: "700",
+  },
+  typingMsg: {
+    color: "#0d6efd",
+    fontStyle: "italic",
+    fontWeight: "700",
+  },
+  unreadBadge: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "#ef4444",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+    marginLeft: 10,
+  },
+  unreadBadgeText: {
+    color: "#ffffff",
+    fontSize: 11,
+    fontWeight: "700",
+  },
   emptyText: {
     textAlign: "center",
     color: "#6b7280",
     fontSize: 15,
     marginTop: 30,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    justifyContent: "flex-end",
+  },
+  groupSheet: {
+    backgroundColor: "#ffffff",
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    height: "75%",
+  },
+  sheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e5e7eb",
+  },
+  sheetTitle: {
+    color: "#111827",
+    fontSize: 17,
+    fontWeight: "700",
+  },
+  cancelText: {
+    color: "#6b7280",
+    fontSize: 16,
+  },
+  createText: {
+    color: "#9ca3af",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  createTextActive: {
+    color: "#0d6efd",
+  },
+  groupNameInput: {
+    marginHorizontal: 16,
+    marginVertical: 14,
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    color: "#111827",
+    fontSize: 16,
+  },
+  friendOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 11,
+  },
+  friendOptionAvatar: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    marginRight: 12,
+  },
+  friendOptionName: {
+    flex: 1,
+    color: "#111827",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkboxSelected: {
+    backgroundColor: "#0d6efd",
+    borderColor: "#0d6efd",
+  },
+  checkboxText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "700",
   },
   loadingWrapper: {
     flex: 1,

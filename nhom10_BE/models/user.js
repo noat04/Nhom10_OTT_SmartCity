@@ -43,6 +43,31 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: ""
   },
+  role: {
+    type: String,
+    enum: ['user', 'admin'],
+    default: 'user'
+  },
+  isLocked: {
+    type: Boolean,
+    default: false
+  },
+  isDeleted: {
+    type: Boolean,
+    default: false
+  },
+  deletedAt: {
+    type: Date,
+    default: null
+  },
+  lockReason: {
+    type: String,
+    default: ""
+  },
+  lockedAt: {
+    type: Date,
+    default: null
+  },
   status: {
     type: String,
     enum: ['online', 'offline'], // (Tùy chọn) Ràng buộc các trạng thái

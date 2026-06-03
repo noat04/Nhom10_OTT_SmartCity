@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, Stack, useLocalSearchParams } from "expo-router";
+import * as Linking from "expo-linking";
 import React, { useCallback, useEffect, useState } from "react";
 import {
     ActivityIndicator,
@@ -9,6 +10,7 @@ import {
     KeyboardAvoidingView,
     Modal,
     Platform,
+    Share,
     ScrollView,
     StyleSheet,
     Text,
@@ -21,10 +23,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../../../context/authContext";
 import {
     addGroupMembersAPI,
+    dissolveGroupAPI,
+    getGroupInviteAPI,
     getGroupInfoAPI,
+    initOneToOneChatAPI,
     leaveGroupAPI,
     promoteGroupAdminAPI,
     removeGroupMemberAPI,
+    sendMessageAPI,
     updateGroupInfoAPI,
 } from "../../../service/chat.api";
 
@@ -43,7 +49,8 @@ import {
     onGroupInfoUpdated,
     onGroupLeft,
     onGroupMemberRemoved,
-    onGroupMembersAdded
+    onGroupMembersAdded,
+    getSocket
 } from "../../../socket/socket";
 
 export default function GroupSettingsScreen() {
@@ -67,6 +74,12 @@ export default function GroupSettingsScreen() {
     // 👉 STATE MỚI CHO TÍNH NĂNG KẾT BẠN
     const [allFriends, setAllFriends] = useState<any[]>([]);
     const [sentRequestIds, setSentRequestIds] = useState<string[]>([]);
+    const [groupDissolved, setGroupDissolved] = useState(false);
+    const [inviteLoading, setInviteLoading] = useState(false);
+    const [showInviteLinkModal, setShowInviteLinkModal] = useState(false);
+    const [inviteLink, setInviteLink] = useState("");
+    const [selectedInviteFriendIds, setSelectedInviteFriendIds] = useState<string[]>([]);
+    const [sendingInvite, setSendingInvite] = useState(false);
 
     // ================= LOAD DATA =================
     const loadData = useCallback(async (showLoading = true) => {
@@ -79,6 +92,7 @@ export default function GroupSettingsScreen() {
             const data = res.data || res;
             setGroupInfo(data);
             setMembers(data.members || []);
+            setGroupDissolved(data?.isActive === false);
 
             const myId = user?._id || user?.id;
             const me = data.members?.find((m: any) => {
@@ -133,12 +147,27 @@ export default function GroupSettingsScreen() {
     // ================= SOCKET REALTIME =================
     useEffect(() => {
         const handleGroupUpdate = () => { loadData(false); };
+        const socket = getSocket();
+        const handleGroupDissolved = (payload: any) => {
+            const dissolvedConversationId = String(payload?.conversationId || payload?.group?._id || "");
+            if (dissolvedConversationId && String(dissolvedConversationId) !== String(conversationId)) return;
+
+            if (payload?.group) {
+                setGroupInfo(payload.group);
+                setMembers(payload.group.members || []);
+            }
+            setGroupDissolved(true);
+            setShowEditModal(false);
+            setShowAddMemberModal(false);
+        };
+
         onGroupInfoUpdated(handleGroupUpdate);
         onGroupMembersAdded(handleGroupUpdate);
         onGroupMemberRemoved(handleGroupUpdate);
         onGroupAdminChanged(handleGroupUpdate);
         onGroupLeft(handleGroupUpdate);
         onConversationUpdated(handleGroupUpdate);
+        socket?.on("group_dissolved", handleGroupDissolved);
         return () => {
             offGroupInfoUpdated(handleGroupUpdate);
             offGroupMembersAdded(handleGroupUpdate);
@@ -146,8 +175,9 @@ export default function GroupSettingsScreen() {
             offGroupAdminChanged(handleGroupUpdate);
             offGroupLeft(handleGroupUpdate);
             offConversationUpdated(handleGroupUpdate);
+            socket?.off("group_dissolved", handleGroupDissolved);
         };
-    }, [loadData]);
+    }, [conversationId, loadData]);
 
 
     // ================= ACTIONS =================
@@ -166,6 +196,30 @@ export default function GroupSettingsScreen() {
                     const res = await leaveGroupAPI({ conversationId });
                     if (res?.success) router.replace("/");
                     else Alert.alert("Lỗi", "Không thể rời nhóm");
+                }
+            }
+        ]);
+    };
+
+    const handleDissolveGroup = () => {
+        if (myRole !== "admin" || groupDissolved) return;
+
+        Alert.alert("Giải tán nhóm", "Bạn có chắc chắn muốn giải tán nhóm này không?", [
+            { text: "Hủy", style: "cancel" },
+            {
+                text: "Giải tán",
+                style: "destructive",
+                onPress: async () => {
+                    const res = await dissolveGroupAPI({ conversationId });
+                    if (res?.success) {
+                        setGroupDissolved(true);
+                        if (res.data) {
+                            setGroupInfo(res.data);
+                            setMembers(res.data.members || []);
+                        }
+                    } else {
+                        Alert.alert("Lỗi", res?.message || "Không thể giải tán nhóm");
+                    }
                 }
             }
         ]);
@@ -199,7 +253,7 @@ export default function GroupSettingsScreen() {
             const rawId = typeof targetUserId === 'object' ? (targetUserId as any)._id || (targetUserId as any).id : targetUserId;
             const safeId = String(rawId);
 
-            const res = await sendFriendRequestAPI({ receiverId: safeId });
+            const res = await sendFriendRequestAPI(safeId);
 
             if (res?.success) {
                 // Thêm ngay vào state để đổi UI sang màu xám "Đã gửi"
@@ -225,6 +279,34 @@ export default function GroupSettingsScreen() {
         });
     };
 
+    const getFriendData = (friend: any) => friend?.friendInfo || friend?.user || friend;
+
+    const getFriendId = (friend: any) => {
+        const data = getFriendData(friend);
+        return data?._id || data?.id || null;
+    };
+
+    const getInviteFriendCandidates = () => {
+        const currentMemberIds = new Set(
+            members.map((m: any) =>
+                String(typeof m.user === "object" ? m.user?._id || m.user?.id : m.user),
+            ),
+        );
+
+        return allFriends.filter((friend: any) => {
+            const friendId = getFriendId(friend);
+            return friendId && !currentMemberIds.has(String(friendId));
+        });
+    };
+
+    const toggleInviteFriend = (friendId: string) => {
+        setSelectedInviteFriendIds((prev) =>
+            prev.includes(friendId)
+                ? prev.filter((id) => id !== friendId)
+                : [...prev, friendId],
+        );
+    };
+
     const handleOpenAddMemberModal = async () => {
         setShowAddMemberModal(true);
         setSelectedFriendIds([]);
@@ -234,6 +316,89 @@ export default function GroupSettingsScreen() {
             return !currentMemberIds.includes(String(fId));
         });
         setFriendsList(availableFriends);
+    };
+
+    const handleOpenInviteLinkModal = async () => {
+        if (myRole !== "admin" || groupDissolved || !conversationId) return;
+
+        try {
+            setInviteLoading(true);
+            const res = await getGroupInviteAPI(conversationId);
+
+            if (!res?.success || !res?.data?.token) {
+                Alert.alert("Lỗi", res?.message || "Không thể tạo link mời nhóm");
+                return;
+            }
+
+            const inviteLink = Linking.createURL(`/group/join/${res.data.token}`);
+            setInviteLink(inviteLink);
+            setSelectedInviteFriendIds([]);
+            setShowInviteLinkModal(true);
+            if (false) await Share.share({
+                message: `Tham gia nhóm ${groupInfo?.name || "chat"}: ${inviteLink}`,
+                url: inviteLink,
+            });
+        } catch (error: any) {
+            Alert.alert("Lỗi", error?.message || "Không thể chia sẻ link mời nhóm");
+        } finally {
+            setInviteLoading(false);
+        }
+    };
+
+    const handleShareInviteLink = async () => {
+        if (!inviteLink) return;
+
+        await Share.share({
+            message: `Tham gia nhom ${groupInfo?.name || "chat"}: ${inviteLink}`,
+            url: inviteLink,
+        });
+    };
+
+    const handleSendInviteToFriends = async () => {
+        if (!inviteLink || selectedInviteFriendIds.length === 0) {
+            Alert.alert("Thong bao", "Vui long chon it nhat 1 ban be");
+            return;
+        }
+
+        try {
+            setSendingInvite(true);
+
+            for (const friendId of selectedInviteFriendIds) {
+                const initRes = await initOneToOneChatAPI(friendId);
+
+                if (!initRes?.success) {
+                    throw new Error(initRes?.message || "Khong the mo chat rieng");
+                }
+
+                const conversation = initRes?.data?.conversation || initRes?.data || null;
+                const privateConversationId =
+                    conversation?._id ||
+                    conversation?.conversationId ||
+                    initRes?.data?.conversationId;
+
+                if (!privateConversationId) {
+                    throw new Error("Khong lay duoc conversationId");
+                }
+
+                const sendRes = await sendMessageAPI({
+                    conversationId: privateConversationId,
+                    content: `Tham gia nhom ${groupInfo?.name || "chat"}: ${inviteLink}`,
+                    type: "text",
+                });
+
+                if (!sendRes?.success) {
+                    throw new Error(sendRes?.message || "Gui link moi that bai");
+                }
+            }
+
+            setShowInviteLinkModal(false);
+            setSelectedInviteFriendIds([]);
+            Alert.alert("Thanh cong", "Da gui link moi nhom");
+        } catch (error: any) {
+            Alert.alert("Loi", error?.message || "Khong the gui link moi");
+        } finally {
+            setSendingInvite(false);
+        }
     };
 
     // const handleSubmitAddMembers = async () => {
@@ -300,7 +465,7 @@ export default function GroupSettingsScreen() {
                         <Image source={{ uri: groupInfo?.avatar || "https://i.pravatar.cc/200" }} style={styles.largeAvatar} />
                         <View style={styles.nameRow}>
                             <Text style={styles.groupName}>{groupInfo?.name || "Nhóm Chat"}</Text>
-                            {myRole === "admin" && (
+                            {myRole === "admin" && !groupDissolved && (
                                 <TouchableOpacity onPress={() => { setNewGroupName(groupInfo?.name || ""); setShowEditModal(true); }} style={{ marginLeft: 8 }}>
                                     <Ionicons name="pencil" size={20} color="#0d6efd" />
                                 </TouchableOpacity>
@@ -309,6 +474,14 @@ export default function GroupSettingsScreen() {
                         <Text style={styles.memberCount}>{members.length} thành viên</Text>
                     </View>
 
+                    {groupDissolved && (
+                        <TouchableOpacity style={styles.headerLeaveBtn} onPress={handleLeaveGroup}>
+                            <Ionicons name="log-out-outline" size={20} color="#ef4444" style={{ marginRight: 6 }} />
+                            <Text style={styles.headerLeaveBtnText}>Rời nhóm</Text>
+                        </TouchableOpacity>
+                    )}
+
+                    {!groupDissolved && (
                     <View style={styles.actionSection}>
                         {myRole === "admin" && (
                             <TouchableOpacity style={styles.actionItem} onPress={handleOpenAddMemberModal}>
@@ -316,11 +489,24 @@ export default function GroupSettingsScreen() {
                                 <Text style={styles.actionText}>Thêm thành viên</Text>
                             </TouchableOpacity>
                         )}
+                        {myRole === "admin" && (
+                            <TouchableOpacity style={styles.actionItem} onPress={handleOpenInviteLinkModal} disabled={inviteLoading}>
+                                <View style={[styles.iconBox, { backgroundColor: "#ecfdf5" }]}>
+                                    {inviteLoading ? (
+                                        <ActivityIndicator size="small" color="#16a34a" />
+                                    ) : (
+                                        <Ionicons name="link-outline" size={24} color="#16a34a" />
+                                    )}
+                                </View>
+                                <Text style={styles.actionText}>Mời bằng link</Text>
+                            </TouchableOpacity>
+                        )}
                         <TouchableOpacity style={styles.actionItem} onPress={() => alert("Mở chức năng tìm kiếm")}>
                             <View style={[styles.iconBox, { backgroundColor: "#f3f4f6" }]}><Ionicons name="search" size={24} color="#374151" /></View>
                             <Text style={styles.actionText}>Tìm tin nhắn</Text>
                         </TouchableOpacity>
                     </View>
+                    )}
 
                     <View style={styles.listSection}>
                         <Text style={styles.sectionTitle}>Thành viên nhóm</Text>
@@ -363,7 +549,7 @@ export default function GroupSettingsScreen() {
                                         )}
 
                                         {/* Nút Admin */}
-                                        {myRole === "admin" && !isMe && (
+                                        {myRole === "admin" && !groupDissolved && !isMe && (
                                             <>
                                                 <TouchableOpacity onPress={() => handlePromoteAdmin(uId, uName)}>
                                                     <View style={[styles.iconCircle, { backgroundColor: "#fffbeb", borderColor: "#f59e0b" }]}><Ionicons name="key" size={16} color="#f59e0b" /></View>
@@ -380,12 +566,20 @@ export default function GroupSettingsScreen() {
                         })}
                     </View>
 
+                    {!groupDissolved && (
                     <View style={styles.dangerSection}>
+                        {myRole === "admin" && (
+                            <TouchableOpacity style={styles.dissolveBtn} onPress={handleDissolveGroup}>
+                                <Ionicons name="trash-outline" size={24} color="#ef4444" style={{ marginRight: 8 }} />
+                                <Text style={styles.leaveBtnText}>Giải tán nhóm</Text>
+                            </TouchableOpacity>
+                        )}
                         <TouchableOpacity style={styles.leaveBtn} onPress={handleLeaveGroup}>
                             <Ionicons name="log-out-outline" size={24} color="#ef4444" style={{ marginRight: 8 }} />
                             <Text style={styles.leaveBtnText}>Rời khỏi nhóm</Text>
                         </TouchableOpacity>
                     </View>
+                    )}
                 </ScrollView>
 
                 {/* MODAL SỬA TÊN NHÓM */}
@@ -437,6 +631,67 @@ export default function GroupSettingsScreen() {
                     </View>
                 </Modal>
 
+                <Modal visible={showInviteLinkModal} animationType="slide" transparent>
+                    <View style={styles.bottomSheetOverlay}>
+                        <View style={styles.bottomSheetContent}>
+                            <View style={styles.sheetHeader}>
+                                <TouchableOpacity
+                                    onPress={() => {
+                                        setShowInviteLinkModal(false);
+                                        setSelectedInviteFriendIds([]);
+                                    }}
+                                >
+                                    <Text style={styles.cancelText}>Dong</Text>
+                                </TouchableOpacity>
+                                <Text style={styles.sheetTitle}>Moi bang link</Text>
+                                <TouchableOpacity onPress={handleSendInviteToFriends} disabled={sendingInvite}>
+                                    {sendingInvite ? (
+                                        <ActivityIndicator size="small" color="#0d6efd" />
+                                    ) : (
+                                        <Text style={[styles.confirmText, selectedInviteFriendIds.length > 0 && { color: "#0d6efd" }]}>
+                                            Gui ({selectedInviteFriendIds.length})
+                                        </Text>
+                                    )}
+                                </TouchableOpacity>
+                            </View>
+
+                            <View style={styles.inviteLinkBox}>
+                                <Text style={styles.inviteLinkText} numberOfLines={2}>{inviteLink}</Text>
+                                <TouchableOpacity style={styles.shareLinkBtn} onPress={handleShareInviteLink}>
+                                    <Ionicons name="copy-outline" size={18} color="#0d6efd" />
+                                    <Text style={styles.shareLinkText}>Sao chep / chia se</Text>
+                                </TouchableOpacity>
+                            </View>
+
+                            <Text style={styles.inviteSectionTitle}>Chon ban be de gui link</Text>
+                            <FlatList
+                                data={getInviteFriendCandidates()}
+                                keyExtractor={(item, index) => String(getFriendId(item) || index)}
+                                contentContainerStyle={{ padding: 15 }}
+                                ListEmptyComponent={
+                                    <View style={styles.emptyFriendBox}>
+                                        <Text style={{ color: "#888" }}>Khong co ban be phu hop de moi.</Text>
+                                    </View>
+                                }
+                                renderItem={({ item }) => {
+                                    const fData = getFriendData(item);
+                                    const friendId = String(fData?._id || fData?.id || "");
+                                    if (!friendId) return null;
+                                    const isSelected = selectedInviteFriendIds.includes(friendId);
+
+                                    return (
+                                        <TouchableOpacity style={styles.friendSelectItem} onPress={() => toggleInviteFriend(friendId)}>
+                                            <Image source={{ uri: fData?.avatar || "https://i.pravatar.cc/100" }} style={styles.memberAvatar} />
+                                            <Text style={styles.memberName}>{fData?.fullName || fData?.username || "Ban be"}</Text>
+                                            <Ionicons name={isSelected ? "checkmark-circle" : "ellipse-outline"} size={26} color={isSelected ? "#0d6efd" : "#ccc"} />
+                                        </TouchableOpacity>
+                                    );
+                                }}
+                            />
+                        </View>
+                    </View>
+                </Modal>
+
             </KeyboardAvoidingView>
         </View>
     );
@@ -454,6 +709,8 @@ const styles = StyleSheet.create({
     nameRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", marginBottom: 5 },
     groupName: { fontSize: 22, fontWeight: "bold", color: "#111" },
     memberCount: { fontSize: 14, color: "#6b7280" },
+    headerLeaveBtn: { marginTop: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "#fef2f2", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12 },
+    headerLeaveBtnText: { color: "#ef4444", fontSize: 15, fontWeight: "700" },
     actionSection: { flexDirection: "row", justifyContent: "space-around", backgroundColor: "#fff", paddingVertical: 20, marginBottom: 10 },
     actionItem: { alignItems: "center" },
     iconBox: { width: 50, height: 50, borderRadius: 25, justifyContent: "center", alignItems: "center", marginBottom: 8 },
@@ -466,6 +723,7 @@ const styles = StyleSheet.create({
     adminBadge: { color: "#0d6efd", fontSize: 12, marginTop: 2, fontWeight: "600" },
     dangerSection: { marginTop: 10 },
     leaveBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "#fff", paddingVertical: 15 },
+    dissolveBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "#fff", paddingVertical: 15, marginBottom: 10 },
     leaveBtnText: { color: "#ef4444", fontSize: 16, fontWeight: "bold" },
 
     // 👉 CSS cho nút Kết Bạn & Admin
@@ -488,4 +746,9 @@ const styles = StyleSheet.create({
     confirmText: { fontSize: 16, color: "#9ca3af", fontWeight: "bold" },
     friendSelectItem: { flexDirection: "row", alignItems: "center", marginBottom: 20 },
     emptyFriendBox: { flex: 1, justifyContent: "center", alignItems: "center" },
+    inviteLinkBox: { margin: 15, padding: 12, borderRadius: 10, backgroundColor: "#f8fafc", borderWidth: 1, borderColor: "#e5e7eb" },
+    inviteLinkText: { color: "#374151", fontSize: 13, lineHeight: 18 },
+    shareLinkBtn: { marginTop: 10, flexDirection: "row", alignItems: "center", alignSelf: "flex-start", paddingVertical: 8, paddingHorizontal: 10, borderRadius: 8, backgroundColor: "#eff6ff" },
+    shareLinkText: { color: "#0d6efd", fontSize: 13, fontWeight: "700", marginLeft: 6 },
+    inviteSectionTitle: { color: "#6b7280", fontSize: 13, fontWeight: "700", marginHorizontal: 15, marginTop: 2 },
 });

@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -54,6 +54,7 @@ type Message = {
   reactions?: Reaction[];
   replyTo?: Message;
   isDeleted?: boolean;
+  seenBy?: any[];
 };
 
 const emojiMap: Record<string, string> = {
@@ -62,11 +63,20 @@ const emojiMap: Record<string, string> = {
 
 export default function ChatDetail() {
   const insets = useSafeAreaInsets();
-  const { id, name, avatar, partnerId } = useLocalSearchParams();
+  const { id, name, avatar, partnerId, canSendMessage, friendshipStatus, partnerDeleted } = useLocalSearchParams();
   const conversationId = Array.isArray(id) ? id[0] : id;
   const displayName = Array.isArray(name) ? name[0] : name;
   const displayAvatar = Array.isArray(avatar) ? avatar[0] : avatar;
   const finalPartnerId = Array.isArray(partnerId) ? partnerId[0] : partnerId;
+  const initialCanSendMessage = Array.isArray(canSendMessage)
+    ? canSendMessage[0]
+    : canSendMessage;
+  const initialFriendshipStatus = Array.isArray(friendshipStatus)
+    ? friendshipStatus[0]
+    : friendshipStatus;
+  const initialPartnerDeleted = Array.isArray(partnerDeleted)
+    ? partnerDeleted[0]
+    : partnerDeleted;
 
   const [message, setMessage] = useState("");
   const [chat, setChat] = useState<Message[]>([]);
@@ -74,6 +84,7 @@ export default function ChatDetail() {
 
   const [replyMessage, setReplyMessage] = useState<Message | null>(null);
   const [typing, setTyping] = useState(false);
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
   const [selectedFile, setSelectedFile] = useState<any>(null);
@@ -102,6 +113,17 @@ export default function ChatDetail() {
   const [conversationsList, setConversationsList] = useState<any[]>([]);
   const [selectedForwardTargets, setSelectedForwardTargets] = useState<string[]>([]);
   const [isForwarding, setIsForwarding] = useState(false);
+  const [chatLocked, setChatLocked] = useState(
+    initialCanSendMessage === "false" ||
+    initialFriendshipStatus === "rejected" ||
+    initialFriendshipStatus === "none" ||
+    initialPartnerDeleted === "true",
+  );
+  const [partnerUnavailable, setPartnerUnavailable] = useState(
+    initialPartnerDeleted === "true",
+  );
+  const [partnerOnline, setPartnerOnline] = useState(false);
+  const [partnerLastSeen, setPartnerLastSeen] = useState<string | null>(null);
 
   useEffect(() => {
     const map: any = {};
@@ -111,7 +133,76 @@ export default function ChatDetail() {
     messageIndexMap.current = map;
   }, [chat]);
 
+  const getSenderId = (item: Message) => {
+    return typeof item.senderId === "object" ? item.senderId?._id : item.senderId;
+  };
+
+  const hasSeenByOthers = (item: Message) => {
+    const seenBy = Array.isArray(item.seenBy) ? item.seenBy : [];
+    return (
+      item.status === "seen" ||
+      seenBy.some((seen: any) => {
+        const seenUserId =
+          typeof seen?.userId === "object" ? seen.userId?._id : seen?.userId;
+        return seenUserId && String(seenUserId) !== String(myId);
+      })
+    );
+  };
+
+  const getLastOwnMessageId = () => {
+    return chat.find((item) => String(getSenderId(item)) === String(myId))?._id || null;
+  };
+
+  const emitSeen = () => {
+    const socket = getSocket();
+    if (!socket || !conversationId) return;
+    socket.emit("seen", { conversationId });
+  };
+
+  const formatLastSeen = (value?: string | null) => {
+    if (!value) return "Không hoạt động";
+    return `Hoạt động ${new Date(value).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    })}`;
+  };
+
+  const visibleDisplayName = partnerUnavailable
+    ? "Tai khoan bi khoa"
+    : displayName;
+
+  const lockedChatMessage = partnerUnavailable
+    ? "Tai khoan nay da bi khoa. Ban chi co the xem lai cuoc tro chuyen truoc do."
+    : "Ban va nguoi nay hien khong con la ban be. Ban chi co the xem lai cuoc tro chuyen truoc do.";
+
+  const applyConversationAccess = useCallback((conversation: any) => {
+    if (!conversation || conversation.type !== "private") return;
+
+    const otherMember = conversation?.members?.find(
+      (m: any) => String(m?.user?._id || m?.user) === String(finalPartnerId),
+    );
+    const unavailable = Boolean(
+      conversation?.partnerDeleted ||
+      otherMember?.user?.isDeleted ||
+      otherMember?.user?.isLocked,
+    );
+
+    setPartnerUnavailable(unavailable);
+    setChatLocked(conversation.canSendMessage === false || unavailable);
+
+    if (conversation.canSendMessage === false || unavailable) {
+      setMessage("");
+      setSelectedFile(null);
+      setReplyMessage(null);
+    }
+  }, [finalPartnerId]);
+
   const handleStartCall = (type: "audio" | "video") => {
+    if (chatLocked) {
+      Alert.alert("Thông báo", "Bạn cần kết bạn lại để gọi hoặc nhắn tin.");
+      return;
+    }
+
     if (!finalPartnerId) {
       Alert.alert("Lỗi", "Không tìm thấy thông tin người nhận cuộc gọi.");
       return;
@@ -187,6 +278,65 @@ export default function ChatDetail() {
   }, [conversationId]);
 
   useEffect(() => {
+    const socket = getSocket();
+    if (!socket || !finalPartnerId) return;
+
+    const partnerIdString = String(finalPartnerId);
+
+    const handleOnlineList = (ids: any[]) => {
+      setPartnerOnline(
+        Array.isArray(ids) && ids.map(String).includes(partnerIdString),
+      );
+    };
+
+    const handleUserOnline = (userId: any) => {
+      if (String(userId) === partnerIdString) {
+        setPartnerOnline(true);
+        setPartnerLastSeen(null);
+      }
+    };
+
+    const handleUserOffline = (payload: any) => {
+      const offlineUserId =
+        typeof payload === "object" ? payload?.userId : payload;
+      if (String(offlineUserId) === partnerIdString) {
+        setPartnerOnline(false);
+        setPartnerLastSeen(payload?.lastSeen || new Date().toISOString());
+      }
+    };
+
+    socket.on("online_list", handleOnlineList);
+    socket.on("user_online", handleUserOnline);
+    socket.on("user_offline", handleUserOffline);
+    socket.emit("get_online_users");
+
+    return () => {
+      socket.off("online_list", handleOnlineList);
+      socket.off("user_online", handleUserOnline);
+      socket.off("user_offline", handleUserOffline);
+    };
+  }, [finalPartnerId]);
+
+  useEffect(() => {
+    const syncConversationAccess = async () => {
+      if (!conversationId) return;
+
+      const res = await getConversationsAPI();
+      if (!res?.success || !Array.isArray(res.data)) return;
+
+      const conversation = res.data.find(
+        (item: any) => String(item?._id) === String(conversationId),
+      );
+
+      if (!conversation || conversation.type !== "private") return;
+
+      applyConversationAccess(conversation);
+    };
+
+    syncConversationAccess();
+  }, [applyConversationAccess, conversationId]);
+
+  useEffect(() => {
     if (!isSearching) return;
     const delayDebounceFn = setTimeout(async () => {
       if (searchQuery.trim()) {
@@ -225,6 +375,7 @@ export default function ChatDetail() {
     setChat(Array.isArray(fetchedMsgs) ? fetchedMsgs.reverse() : []);
     setNextCursor(res.data?.nextCursor || null);
     setHasMore(res.data?.hasMore || false);
+    setTimeout(emitSeen, 0);
   };
 
   useEffect(() => { loadMessages(); }, [conversationId]);
@@ -253,6 +404,7 @@ export default function ChatDetail() {
     const socket = getSocket();
     if (!socket || !conversationId) return;
     socket.emit("joinConversation", conversationId);
+    socket.emit("seen", { conversationId });
 
     const handleNewMessage = (msg: Message) => {
       const id = typeof msg.conversationId === "object" ? (msg.conversationId as any)._id : msg.conversationId;
@@ -261,13 +413,27 @@ export default function ChatDetail() {
         if (prev.some((m) => m._id === msg._id)) return prev;
         return [msg, ...prev];
       });
+      if (String(getSenderId(msg)) !== String(myId)) {
+        socket.emit("seen", { conversationId });
+      }
     };
 
     const handleReaction = (updatedMsg: Message) => {
       setChat((prev) => prev.map((m) => String(m._id) === String(updatedMsg._id) ? { ...m, reactions: updatedMsg.reactions } : m));
     };
 
-    const handleSeen = ({ userId }: { userId: string }) => {
+    const handleSeen = ({ userId, seenMessages }: { userId: string; seenMessages?: Message[] }) => {
+      if (Array.isArray(seenMessages) && seenMessages.length > 0) {
+        const seenMap = new Map(seenMessages.map((item) => [String(item._id), item]));
+        setChat((prev) =>
+          prev.map((m) => {
+            const updated = seenMap.get(String(m._id));
+            return updated ? { ...m, ...updated, status: "seen" } : m;
+          }),
+        );
+        return;
+      }
+
       setChat((prev) => prev.map((m) => {
         const sender = typeof m.senderId === "object" ? m.senderId._id : m.senderId;
         return String(sender) === String(myId) ? { ...m, status: "seen" } : m;
@@ -275,7 +441,20 @@ export default function ChatDetail() {
     };
 
     const handleTyping = ({ userId, isTyping }: { userId: string; isTyping: boolean }) => {
-      if (userId !== myId) setTyping(isTyping);
+      if (userId === myId) return;
+
+      if (typingTimerRef.current) {
+        clearTimeout(typingTimerRef.current);
+      }
+
+      setTyping(isTyping);
+
+      if (isTyping) {
+        typingTimerRef.current = setTimeout(() => {
+          setTyping(false);
+          typingTimerRef.current = null;
+        }, 2500);
+      }
     };
 
     const handleMessagePinned = (updatedConversation: any) => {
@@ -290,6 +469,42 @@ export default function ChatDetail() {
       setChat(prev => prev.map(m => m._id === msgId ? { ...m, isDeleted: true } : m));
     };
 
+    const handleFriendRemoved = (payload: any) => {
+      const removedFriendId = String(payload?.data?.friendId || "");
+      const removedByUserId = String(payload?.data?.userId || "");
+      const partner = String(finalPartnerId || "");
+
+      if (
+        partner &&
+        (partner === removedFriendId || partner === removedByUserId)
+      ) {
+        setChatLocked(true);
+        setMessage("");
+        setSelectedFile(null);
+        setReplyMessage(null);
+      }
+    };
+
+    const handleConversationUpdated = async (payload: any) => {
+      const conversation = payload?.data || payload?.conversation || payload;
+      const updatedConversationId = String(conversation?._id || "");
+
+      if (updatedConversationId) {
+        if (updatedConversationId === String(conversationId)) {
+          applyConversationAccess(conversation);
+        }
+        return;
+      }
+
+      const res = await getConversationsAPI();
+      if (!res?.success || !Array.isArray(res.data)) return;
+
+      const currentConversation = res.data.find(
+        (item: any) => String(item?._id) === String(conversationId),
+      );
+      applyConversationAccess(currentConversation);
+    };
+
     socket.on("message_edited", handleEdit);
     socket.on("message_deleted", handleDelete);
     socket.on("newMessage", handleNewMessage);
@@ -297,9 +512,16 @@ export default function ChatDetail() {
     socket.on("message_seen", handleSeen);
     socket.on("typing", handleTyping);
     socket.on("message_pinned", handleMessagePinned);
+    socket.on("friend_removed", handleFriendRemoved);
+    socket.on("conversation_updated", handleConversationUpdated);
 
     return () => {
+      socket.emit("typing", { conversationId, isTyping: false });
       socket.emit("leaveConversation", conversationId);
+      if (typingTimerRef.current) {
+        clearTimeout(typingTimerRef.current);
+        typingTimerRef.current = null;
+      }
       socket.off("newMessage", handleNewMessage);
       socket.off("message_reaction", handleReaction);
       socket.off("message_seen", handleSeen);
@@ -307,8 +529,10 @@ export default function ChatDetail() {
       socket.off("message_pinned", handleMessagePinned);
       socket.off("message_edited", handleEdit);
       socket.off("message_deleted", handleDelete);
+      socket.off("friend_removed", handleFriendRemoved);
+      socket.off("conversation_updated", handleConversationUpdated);
     };
-  }, [conversationId, myId]);
+  }, [applyConversationAccess, conversationId, finalPartnerId, myId]);
 
   // ================= XỬ LÝ CHUYỂN TIẾP (FORWARD) =================
   const handleOpenForwardModal = async (msg: Message) => {
@@ -352,22 +576,33 @@ export default function ChatDetail() {
 
   // ================= CÁC ACTION KHÁC =================
   const handlePickImage = async () => {
+    if (chatLocked) return;
     let result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.All, quality: 0.8 });
     if (!result.canceled) {
       const asset = result.assets[0];
-      setSelectedFile({ uri: asset.uri, type: asset.type === "video" ? "video" : "image", name: asset.fileName || `upload_${Date.now()}.${asset.uri.split('.').pop()}`, mimeType: asset.mimeType || "image/jpeg" });
+      const sizeCheck = await canUsePickedFile(asset);
+      if (!sizeCheck.allowed) return;
+      setSelectedFile({ uri: asset.uri, type: asset.type === "video" ? "video" : "image", name: asset.fileName || `upload_${Date.now()}.${asset.uri.split('.').pop()}`, mimeType: asset.mimeType || "image/jpeg", size: sizeCheck.size });
     }
   };
 
   const handlePickDocument = async () => {
+    if (chatLocked) return;
     let result = await DocumentPicker.getDocumentAsync({ type: "*/*", copyToCacheDirectory: true });
     if (!result.canceled) {
       const asset = result.assets[0];
-      setSelectedFile({ uri: asset.uri, type: "file", name: asset.name, mimeType: asset.mimeType || "application/octet-stream" });
+      const sizeCheck = await canUsePickedFile(asset);
+      if (!sizeCheck.allowed) return;
+      setSelectedFile({ uri: asset.uri, type: "file", name: asset.name, mimeType: asset.mimeType || "application/octet-stream", size: sizeCheck.size });
     }
   };
 
   const send = async () => {
+    if (chatLocked) {
+      Alert.alert("Thông báo", "Bạn cần kết bạn lại để tiếp tục nhắn tin.");
+      return;
+    }
+
     if (editingMessage) return handleSaveEdit();
     if (!message.trim() && !selectedFile) return;
     setIsSending(true);
@@ -376,6 +611,8 @@ export default function ChatDetail() {
 
     try {
       if (selectedFile) {
+        const sizeCheck = await canUsePickedFile(selectedFile);
+        if (!sizeCheck.allowed) { setIsSending(false); return; }
         msgType = selectedFile.type;
         const presignedRes = await getPresignedUrlAPI({ fileName: selectedFile.name, fileType: selectedFile.mimeType });
         if (!presignedRes?.success) { Alert.alert("Lỗi", "Không tạo được URL upload"); setIsSending(false); return; }
@@ -396,11 +633,19 @@ export default function ChatDetail() {
         replyTo: replyMessage?._id || null,
       });
 
+      if (
+        !res?.success &&
+        String(res?.message || "").toLowerCase().includes("ket ban")
+      ) {
+        setChatLocked(true);
+      }
+
       if (!res?.success) Alert.alert("Lỗi", res?.message || "Gửi tin nhắn thất bại");
       else {
         setMessage("");
         setSelectedFile(null);
         setReplyMessage(null);
+        getSocket()?.emit("typing", { conversationId, isTyping: false });
         flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
       }
     } catch (error) {
@@ -450,6 +695,83 @@ export default function ChatDetail() {
     if (!seconds) return "00:00";
     return `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
   };
+  const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
+  const getPickedFileSize = async (asset: any) => {
+    const directSize = asset?.fileSize || asset?.size;
+    if (typeof directSize === "number") return directSize;
+
+    try {
+      const response = await fetch(asset.uri);
+      const blob = await response.blob();
+      return blob.size;
+    } catch {
+      return 0;
+    }
+  };
+
+  const canUsePickedFile = async (asset: any) => {
+    const size = await getPickedFileSize(asset);
+    if (size > MAX_FILE_SIZE) {
+      Alert.alert("Thong bao", "Khong gui duoc file tren 10MB");
+      return { allowed: false, size };
+    }
+    return { allowed: true, size };
+  };
+
+  const getAttachmentMeta = (type?: string, fileName?: string, mimeType?: string) => {
+    const name = String(fileName || "").toLowerCase();
+    const mime = String(mimeType || "").toLowerCase();
+
+    if (type === "image" || mime.startsWith("image/")) {
+      return { icon: "image-outline" as any, color: "#0284c7", label: "Anh" };
+    }
+    if (type === "video" || mime.startsWith("video/")) {
+      return { icon: "videocam-outline" as any, color: "#7c3aed", label: "Video" };
+    }
+    if (name.endsWith(".pdf") || mime.includes("pdf")) {
+      return { icon: "document-text-outline" as any, color: "#dc2626", label: "PDF" };
+    }
+    if (/\.(doc|docx)$/i.test(name) || mime.includes("word")) {
+      return { icon: "document-text-outline" as any, color: "#2563eb", label: "Word" };
+    }
+    if (/\.(xls|xlsx|csv)$/i.test(name) || mime.includes("spreadsheet") || mime.includes("excel")) {
+      return { icon: "grid-outline" as any, color: "#16a34a", label: "Excel" };
+    }
+    return { icon: "document-attach-outline" as any, color: "#4b5563", label: "Tep" };
+  };
+
+  const renderAttachmentContent = (item: Message, isMe: boolean) => {
+    const meta = getAttachmentMeta(item.type, item.fileName);
+    const fileName = item.fileName || (item.type === "image" ? "Anh" : item.type === "video" ? "Video" : "Tep dinh kem");
+
+    return (
+      <TouchableOpacity
+        onPress={() => handleOpenFile(item.fileUrl)}
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          backgroundColor: isMe ? "rgba(255,255,255,0.18)" : "#f3f4f6",
+          padding: 10,
+          borderRadius: 10,
+          minWidth: 210,
+          maxWidth: 260,
+        }}
+      >
+        <View style={{ width: 42, height: 42, borderRadius: 10, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center", marginRight: 10 }}>
+          <Ionicons name={meta.icon} size={24} color={meta.color} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: isMe ? "#ffffff" : "#111827", fontWeight: "700", fontSize: 14 }} numberOfLines={1}>
+            {fileName}
+          </Text>
+          <Text style={{ color: isMe ? "#e5e7eb" : "#6b7280", fontSize: 12, marginTop: 2 }}>
+            {meta.label} - Nhan de mo
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   const getMessageSnippet = (msg?: Message | null) => {
     if (!msg) return "";
@@ -461,16 +783,41 @@ export default function ChatDetail() {
   };
 
   const handleOpenFile = (url?: string) => { if (url) Linking.openURL(url).catch(() => Alert.alert("Lỗi", "Không thể mở file.")); };
+  const renderTextContent = (content: string, isMe: boolean) => {
+    const match = content.match(/(\S*group\/join\/\S+)/);
+    const color = isMe ? "white" : "#111827";
+    const linkColor = isMe ? "#dbeafe" : "#0d6efd";
+
+    if (!match) return <Text style={{ color, fontSize: 16, lineHeight: 22 }}>{content}</Text>;
+
+    const link = match[1];
+    const [before, after = ""] = content.split(link);
+
+    return (
+      <Text style={{ color, fontSize: 16, lineHeight: 22 }}>
+        {before}
+        <Text
+          style={{ color: linkColor, textDecorationLine: "underline", fontWeight: "700" }}
+          onPress={() => Linking.openURL(link).catch(() => Alert.alert("Lá»—i", "KhÃ´ng thá»ƒ má»Ÿ link."))}
+        >
+          {link}
+        </Text>
+        {after}
+      </Text>
+    );
+  };
   const avatarSource = { uri: displayAvatar && String(displayAvatar).trim() ? displayAvatar : "https://i.pravatar.cc/150" };
+  const lastOwnMessageId = getLastOwnMessageId();
 
   const renderMessageContent = (item: Message, isMe: boolean) => {
     if (item.isDeleted) return <Text style={{ color: "#888", fontStyle: 'italic' }}>Tin nhắn đã thu hồi</Text>;
+    if (["image", "video", "file"].includes(String(item.type))) return renderAttachmentContent(item, isMe);
     switch (item.type) {
       case "image": return <TouchableOpacity onPress={() => handleOpenFile(item.fileUrl)}><Image source={{ uri: item.fileUrl }} style={{ width: 220, height: 300, borderRadius: 12, backgroundColor: '#f0f0f0' }} resizeMode="cover" /></TouchableOpacity>;
       case "video": return <TouchableOpacity onPress={() => handleOpenFile(item.fileUrl)} style={{ width: 200, height: 150, backgroundColor: '#000', borderRadius: 8, justifyContent: 'center', alignItems: 'center' }}><Ionicons name="play-circle" size={50} color="rgba(255,255,255,0.8)" /><Text style={{ color: '#fff', fontSize: 12, marginTop: 5 }}>Video</Text></TouchableOpacity>;
       case "file": return <TouchableOpacity onPress={() => handleOpenFile(item.fileUrl)} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: isMe ? "rgba(255,255,255,0.2)" : "#f3f4f6", padding: 10, borderRadius: 8, maxWidth: 220 }}><View style={{ width: 40, height: 40, backgroundColor: '#fff', borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginRight: 10 }}><Ionicons name="document-text" size={24} color="#0d6efd" /></View><View style={{ flex: 1 }}><Text style={{ color: isMe ? "#fff" : "#111", fontWeight: '500' }} numberOfLines={1}>{item.fileName || "Tài liệu"}</Text><Text style={{ color: isMe ? "#e0e0e0" : "#666", fontSize: 12 }}>Nhấn để mở</Text></View></TouchableOpacity>;
       case "call": const isMissed = item.callInfo?.status === "missed" || item.callInfo?.status === "rejected"; return <View style={{ flexDirection: 'row', alignItems: 'center', minWidth: 160 }}><View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: isMissed ? "#ffe5e5" : (isMe ? "rgba(255,255,255,0.2)" : "#e5efff"), justifyContent: 'center', alignItems: 'center', marginRight: 12 }}><Ionicons name={item.callInfo?.callType === "video" ? "videocam" : "call"} size={20} color={isMissed ? "#ff4d4f" : (isMe ? "#fff" : "#0d6efd")} /></View><View><Text style={{ fontWeight: 'bold', fontSize: 15, color: isMissed ? "#ff4d4f" : (isMe ? "#fff" : "#111") }}>{isMissed ? (isMe ? "Cuộc gọi đi nhỡ" : "Cuộc gọi nhỡ") : (isMe ? "Cuộc gọi đi" : "Cuộc gọi đến")}</Text><Text style={{ fontSize: 13, color: isMe ? "#e0e0e0" : "#666" }}>{isMissed ? "Chạm để gọi lại" : formatDuration(item.callInfo?.duration)}</Text></View></View>;
-      default: return <Text style={{ color: isMe ? "white" : "#111827", fontSize: 16, lineHeight: 22 }}>{item.content}</Text>;
+      default: return renderTextContent(item.content || "", isMe);
     }
   };
 
@@ -500,17 +847,25 @@ export default function ChatDetail() {
                   <Ionicons name="chevron-back" size={26} color="#111" />
                 </TouchableOpacity>
                 <Image source={avatarSource} style={styles.headerAvatar} />
-                <Text style={styles.headerName} numberOfLines={1}>{displayName}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.headerName} numberOfLines={1}>{visibleDisplayName}</Text>
+                  <View style={styles.presenceRow}>
+                    <View style={[styles.presenceDot, partnerOnline && styles.presenceDotOnline]} />
+                    <Text style={styles.presenceText} numberOfLines={1}>
+                      {partnerOnline ? "Đang hoạt động" : formatLastSeen(partnerLastSeen)}
+                    </Text>
+                  </View>
+                </View>
               </View>
               <View style={{ flexDirection: "row", gap: 15, alignItems: "center" }}>
                 <TouchableOpacity onPress={() => setIsSearching(true)}>
                   <Ionicons name="search" size={24} color="#0d6efd" />
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => handleStartCall("audio")}>
-                  <Ionicons name="call-outline" size={24} color="#0d6efd" />
+                <TouchableOpacity onPress={() => handleStartCall("audio")} disabled={chatLocked}>
+                  <Ionicons name="call-outline" size={24} color={chatLocked ? "#9ca3af" : "#0d6efd"} />
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => handleStartCall("video")}>
-                  <Ionicons name="videocam-outline" size={26} color="#0d6efd" />
+                <TouchableOpacity onPress={() => handleStartCall("video")} disabled={chatLocked}>
+                  <Ionicons name="videocam-outline" size={26} color={chatLocked ? "#9ca3af" : "#0d6efd"} />
                 </TouchableOpacity>
               </View>
             </View>
@@ -586,6 +941,7 @@ export default function ChatDetail() {
               const isMe = String(senderId) === String(myId);
               const isReactionActive = activeReactionId === item._id;
               const isPinned = pinnedMessages.some(p => String(p.message?._id) === String(item._id));
+              const shouldShowDeliveryStatus = isMe && item._id === lastOwnMessageId && item.type !== "system";
               // 🔴 XỬ LÝ TIN NHẮN HỆ THỐNG
               if (item.type === "system") {
                 return (
@@ -687,6 +1043,11 @@ export default function ChatDetail() {
                           </Text>
                         </View>
                       )}
+                      {shouldShowDeliveryStatus && (
+                        <Text style={styles.deliveryStatusText}>
+                          {hasSeenByOthers(item) ? "Đã xem" : "Đã gửi"}
+                        </Text>
+                      )}
                     </View>
                   </View>
                 </View>
@@ -699,6 +1060,17 @@ export default function ChatDetail() {
 
         {/* INPUT AREA */}
         {!isSearching && (
+          chatLocked ? (
+            <View style={styles.lockedChatBox}>
+              <Ionicons name="lock-closed-outline" size={18} color="#6b7280" />
+              {partnerUnavailable && (
+                <Text style={styles.lockedChatText}>{lockedChatMessage}</Text>
+              )}
+              <Text style={[styles.lockedChatText, partnerUnavailable && styles.hiddenText]}>
+                Bạn và người này hiện không còn là bạn bè. Bạn chỉ có thể xem lại cuộc trò chuyện trước đó.
+              </Text>
+            </View>
+          ) : (
           <View style={{ backgroundColor: "#ffffff" }}>
             {replyMessage && (
               <View style={styles.replyPreviewBox}>
@@ -719,7 +1091,7 @@ export default function ChatDetail() {
             {selectedFile && (
               <View style={{ padding: 10, backgroundColor: "#f9fafb", borderTopWidth: 1, borderColor: "#e5e7eb", flexDirection: "row", alignItems: "center" }}>
                 <View style={{ width: 40, height: 40, backgroundColor: "#e5e7eb", borderRadius: 8, justifyContent: "center", alignItems: "center", overflow: "hidden" }}>
-                  {selectedFile.type === "image" ? <Image source={{ uri: selectedFile.uri }} style={{ width: 40, height: 40 }} /> : <Ionicons name={selectedFile.type === "video" ? "videocam" : "document"} size={24} color="#6b7280" />}
+                  <Ionicons name={getAttachmentMeta(selectedFile.type, selectedFile.name, selectedFile.mimeType).icon} size={24} color={getAttachmentMeta(selectedFile.type, selectedFile.name, selectedFile.mimeType).color} />
                 </View>
                 <Text style={{ flex: 1, marginLeft: 10, fontSize: 13 }} numberOfLines={1}>{selectedFile.name}</Text>
                 <TouchableOpacity onPress={() => setSelectedFile(null)}><Ionicons name="close-circle" size={24} color="#ef4444" /></TouchableOpacity>
@@ -735,6 +1107,7 @@ export default function ChatDetail() {
               </TouchableOpacity>
             </View>
           </View>
+          )
         )}
 
       </KeyboardAvoidingView>
@@ -798,9 +1171,17 @@ const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 10, paddingVertical: 12, backgroundColor: "#ffffff", borderBottomWidth: 1, borderBottomColor: "#e5e7eb" },
   headerAvatar: { width: 38, height: 38, borderRadius: 19, marginRight: 10 },
   headerName: { color: "#111827", fontWeight: "700", fontSize: 17, flex: 1 },
+  presenceRow: { flexDirection: "row", alignItems: "center", marginTop: 2 },
+  presenceDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#9ca3af", marginRight: 5 },
+  presenceDotOnline: { backgroundColor: "#22c55e" },
+  presenceText: { color: "#6b7280", fontSize: 12 },
   messageAvatar: { width: 30, height: 30, borderRadius: 15 },
   inputContainer: { flexDirection: "row", alignItems: "flex-end", padding: 8, backgroundColor: "#ffffff", borderTopWidth: 0, borderColor: "#e5e7eb" },
   textInput: { flex: 1, backgroundColor: "#f3f4f6", borderRadius: 20, paddingHorizontal: 15, paddingTop: 10, paddingBottom: 10, fontSize: 16, maxHeight: 100, marginLeft: 4, marginRight: 4 },
+  lockedChatBox: { flexDirection: "row", alignItems: "center", backgroundColor: "#f9fafb", borderTopWidth: 1, borderTopColor: "#e5e7eb", paddingHorizontal: 14, paddingVertical: 12 },
+  lockedChatText: { flex: 1, color: "#6b7280", fontSize: 13, lineHeight: 18, marginLeft: 8 },
+  hiddenText: { display: "none" },
+  deliveryStatusText: { color: "#6b7280", fontSize: 11, alignSelf: "flex-end", marginTop: 3, marginRight: 4 },
 
   reactionPopupWrapper: { marginBottom: 8, zIndex: 999, elevation: 5 },
   reactionPopup: { backgroundColor: '#ffffff', borderRadius: 30, paddingHorizontal: 8, paddingVertical: 6, flexDirection: 'row', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 5, elevation: 5 },

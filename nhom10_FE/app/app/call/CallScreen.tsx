@@ -142,16 +142,16 @@ export default function CallScreen() {
 
         init();
 
-        socket.on('webrtc_offer', async ({ offer }) => {
+        socket.on('webrtc_offer', async ({ offer }: { offer: any }) => {
             const answer = await createAnswer(offer);
             socket.emit('webrtc_answer', { receiverId: partnerId, answer, callId });
         });
 
-        socket.on('webrtc_answer', async ({ answer }) => {
+        socket.on('webrtc_answer', async ({ answer }: { answer: any }) => {
             await setRemoteAnswer(answer);
         });
 
-        socket.on('webrtc_ice_candidate', async ({ candidate }) => {
+        socket.on('webrtc_ice_candidate', async ({ candidate }: { candidate: any }) => {
             await addIce(candidate);
         });
 

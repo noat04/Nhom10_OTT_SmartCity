@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
-import { Text, TextInput, TouchableOpacity, View } from "react-native";
+import { StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { resetPasswordAPI } from "../../service/auth.api";
 
 export default function ResetPassword() {
@@ -28,7 +28,7 @@ export default function ResetPassword() {
       alert("✅ Đổi mật khẩu thành công");
 
       router.replace("/(auth)/login");
-    } catch (err) {
+    } catch (err: any) {
       alert(err.response?.data?.message || "Lỗi reset password");
     } finally {
       setLoading(false);
@@ -56,7 +56,7 @@ export default function ResetPassword() {
   );
 }
 
-const styles = {
+const styles = StyleSheet.create({
   input: {
     borderWidth: 1,
     marginBottom: 10,
@@ -69,4 +69,4 @@ const styles = {
     alignItems: "center",
     borderRadius: 5,
   },
-};
+});

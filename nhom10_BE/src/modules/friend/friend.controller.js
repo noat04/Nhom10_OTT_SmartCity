@@ -224,7 +224,7 @@ class FriendController {
       User.findById(receiverId).select("-password"),
     ]);
 
-    if (!receiver) {
+    if (!receiver || receiver.isDeleted) {
       return res.status(404).json({
         success: false,
         message: "Không tìm thấy người dùng nhận lời mời",
@@ -435,7 +435,14 @@ class FriendController {
 //           .lean(),
 //       ]);
 // =======
-      const receiver = await User.findById(currentUserId).select("-password");
+      const Conversation = require("../../../models/conversation");
+      const [receiver, conversation] = await Promise.all([
+        User.findById(currentUserId).select("-password"),
+        Conversation.findById(conversationId)
+          .populate("members.user", "fullName username email avatar status isLocked isDeleted deletedAt")
+          .populate("latestMessage")
+          .lean(),
+      ]);
 // >>>>>>> origin/dam
 
       await NotificationService.createNotification({
@@ -492,6 +499,21 @@ class FriendController {
 
 // =======
 // >>>>>>> origin/dam
+      if (conversation) {
+        conversation.friendshipStatus = "accepted";
+        conversation.canSendMessage = true;
+
+        io.to(senderId.toString()).emit("conversation_created", {
+          success: true,
+          data: conversation,
+        });
+
+        io.to(currentUserId.toString()).emit("conversation_created", {
+          success: true,
+          data: conversation,
+        });
+      }
+
       return res.status(200).json({
         success: true,
         message: "Đã trở thành bạn bè",
@@ -693,12 +715,16 @@ class FriendController {
         });
       }
 
-      const friendship = await Friend.findOneAndDelete({
-        $or: [
-          { userId: currentUserId, friendId, status: "accepted" },
-          { userId: friendId, friendId: currentUserId, status: "accepted" },
-        ],
-      });
+      const friendship = await Friend.findOneAndUpdate(
+        {
+          $or: [
+            { userId: currentUserId, friendId, status: "accepted" },
+            { userId: friendId, friendId: currentUserId, status: "accepted" },
+          ],
+        },
+        { status: "rejected" },
+        { new: true }
+      );
 
       if (!friendship) {
         return res.status(404).json({
@@ -707,9 +733,28 @@ class FriendController {
         });
       }
 
+      const socketUtil = require("../../shared/utils/socket");
+      const io = socketUtil.getIO();
+      const payload = {
+        success: true,
+        data: {
+          friendshipId: friendship._id,
+          friendshipStatus: friendship.status,
+          userId: currentUserId,
+          friendId,
+        },
+      };
+
+      io.to(currentUserId.toString()).emit("friend_removed", payload);
+      io.to(friendId.toString()).emit("friend_removed", payload);
+
       return res.status(200).json({
         success: true,
-        message: "Đã xóa bạn bè thành công",
+        data: {
+          friendshipStatus: friendship.status,
+          friendId,
+        },
+        message: "Đã hủy kết bạn thành công",
       });
     } catch (error) {
       console.error("Lỗi xóa bạn bè:", error);
@@ -766,6 +811,7 @@ class FriendController {
 
       const users = await User.find({
         _id: { $ne: currentUserId },
+        isDeleted: { $ne: true },
         email: { $regex: trimmedKeyword, $options: "i" },
       }).select("-password");
 

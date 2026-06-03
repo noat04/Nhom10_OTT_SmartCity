@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { FaCommentDots, FaUsers, FaSignOutAlt, FaRobot } from "react-icons/fa";
 import { useAuth } from "../context/AuthContext";
-import { updateProfile, updateAvatar } from "../api/userApi";
+import { updateProfile, updateAvatar, updatePassword, deleteMyAccount } from "../api/userApi";
 import { disconnectSocket } from "../socket/socket";
 
 export default function Panel({
@@ -15,6 +15,7 @@ export default function Panel({
   const [showProfile, setShowProfile] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isPasswordLoading, setIsPasswordLoading] = useState(false);
   const [newAvatarFile, setNewAvatarFile] = useState(null);
 
   const [errors, setErrors] = useState({});
@@ -25,6 +26,11 @@ export default function Panel({
     phone: "",
     bio: "",
     avatarPreview: "",
+  });
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
   });
 
   const logout = () => {
@@ -92,6 +98,57 @@ export default function Panel({
       ...prev,
       [field]: "",
     }));
+  };
+
+  const handlePasswordChange = (field, value) => {
+    setPasswordForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+
+    setErrors((prev) => ({
+      ...prev,
+      password: "",
+      general: "",
+    }));
+  };
+
+  const handleUpdatePassword = async () => {
+    setSuccess("");
+
+    if (!passwordForm.currentPassword || !passwordForm.newPassword || !passwordForm.confirmPassword) {
+      setErrors({ password: "Vui long nhap day du thong tin mat khau" });
+      return;
+    }
+
+    if (passwordForm.newPassword.length < 6) {
+      setErrors({ password: "Mat khau moi toi thieu 6 ky tu" });
+      return;
+    }
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setErrors({ password: "Mat khau moi va xac nhan mat khau khong khop" });
+      return;
+    }
+
+    setErrors({});
+    setIsPasswordLoading(true);
+
+    const res = await updatePassword(passwordForm);
+
+    if (!res?.success) {
+      setErrors({ password: res?.message || "Doi mat khau that bai" });
+      setIsPasswordLoading(false);
+      return;
+    }
+
+    setPasswordForm({
+      currentPassword: "",
+      newPassword: "",
+      confirmPassword: "",
+    });
+    setSuccess(res?.message || "Doi mat khau thanh cong!");
+    setIsPasswordLoading(false);
   };
 
   const handleSaveProfile = async () => {
@@ -170,6 +227,18 @@ export default function Panel({
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!window.confirm("Xoa tai khoan? Tai khoan se bi danh dau da xoa va khong the dang nhap tiep.")) return;
+
+    const res = await deleteMyAccount();
+    if (!res?.success) {
+      setErrors({ general: res?.message || "Xoa tai khoan that bai" });
+      return;
+    }
+
+    logout();
   };
 
   const avatarSrc =
@@ -336,6 +405,46 @@ export default function Panel({
               <div className="text-danger small mb-2">{errors.bio}</div>
             )}
 
+            <div className="text-start mt-3 pt-3 border-top">
+              <div className="fw-semibold mb-2">Doi mat khau</div>
+
+              <input
+                type="password"
+                placeholder="Mat khau hien tai"
+                className="form-control mb-2"
+                value={passwordForm.currentPassword}
+                onChange={(e) => handlePasswordChange("currentPassword", e.target.value)}
+              />
+
+              <input
+                type="password"
+                placeholder="Mat khau moi"
+                className="form-control mb-2"
+                value={passwordForm.newPassword}
+                onChange={(e) => handlePasswordChange("newPassword", e.target.value)}
+              />
+
+              <input
+                type="password"
+                placeholder="Nhap lai mat khau moi"
+                className="form-control mb-2"
+                value={passwordForm.confirmPassword}
+                onChange={(e) => handlePasswordChange("confirmPassword", e.target.value)}
+              />
+
+              {errors.password && (
+                <div className="text-danger small mb-2">{errors.password}</div>
+              )}
+
+              <button
+                className="btn btn-outline-primary w-100"
+                onClick={handleUpdatePassword}
+                disabled={isPasswordLoading}
+              >
+                {isPasswordLoading ? "Dang doi..." : "Cap nhat mat khau"}
+              </button>
+            </div>
+
             <div className="d-flex justify-content-between mt-3">
               {isEditing ? (
                 <button
@@ -362,6 +471,11 @@ export default function Panel({
                   setNewAvatarFile(null);
                   setErrors({});
                   setSuccess("");
+                  setPasswordForm({
+                    currentPassword: "",
+                    newPassword: "",
+                    confirmPassword: "",
+                  });
                   setForm({
                     fullName: user.fullName || "",
                     phone: user.phone || "",
@@ -373,6 +487,15 @@ export default function Panel({
                 Đóng
               </button>
             </div>
+
+            {!isEditing && (
+              <button
+                className="btn btn-outline-danger w-100 mt-3"
+                onClick={handleDeleteAccount}
+              >
+                Xoa tai khoan
+              </button>
+            )}
           </div>
         </div>
       )}

@@ -1,6 +1,24 @@
 const chatService = require("../chat/chat.service");
 // 1. XÓA Import Sequelize và Op. Thay bằng import model Friend trực tiếp
 const Friend = require('../../../models/friend');
+const getMemberUserId = (member) => {
+    const hasUserField = member && typeof member === "object" && "user" in member;
+    const user = hasUserField ? member.user : member;
+    if (!user) return null;
+    if (typeof user === "object") return user._id || user.id || null;
+    return user;
+};
+
+const emitConversationUpdatedToMembers = (io, conversation, payload = conversation) => {
+    if (!conversation?.members) return;
+
+    conversation.members.forEach((member) => {
+        const userId = getMemberUserId(member);
+        if (!userId) return;
+        io.to(userId.toString()).emit("conversation_updated", payload);
+    });
+};
+
 class ChatController {
     async initOneToOneChat(req, res) {
         try {
@@ -49,9 +67,11 @@ class ChatController {
 
             // Lấy page và limit từ query param (VD: /api/chat/123/history?page=1&limit=20)
             const { cursor, limit } = req.query;
+            const userId = req.user.id || req.user._id;
 
             const result = await chatService.getConversationHistory(
                 conversationId,
+                userId,
                 cursor || null,
                 parseInt(limit) || 20
             );
@@ -80,6 +100,22 @@ class ChatController {
             res.status(500).json({ success: false, message: "Lỗi server" });
         }
     }
+    async getPrivateUserInfo(req, res) {
+        try {
+            const currentUserId = req.user.id || req.user._id;
+            const { partnerId } = req.params;
+            const data = await chatService.getPrivateUserInfo(currentUserId, partnerId);
+
+            res.status(200).json({ success: true, data });
+        } catch (error) {
+            console.error("Loi lay thong tin nguoi chat:", error);
+            res.status(400).json({
+                success: false,
+                message: error.message || "Khong the lay thong tin nguoi dung",
+            });
+        }
+    }
+
     async sendMessageAPI(req, res) {
         try {
             // 👉 SỬA DÒNG NÀY: Bổ sung thêm fileUrl, fileName, fileSize
@@ -91,6 +127,13 @@ class ChatController {
             }
 
             // 👉 SỬA DÒNG NÀY: Gói ghém đầy đủ đồ đạc mang đi lưu
+            if (fileSize && Number(fileSize) > 10 * 1024 * 1024) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Khong gui duoc file tren 10MB"
+                });
+            }
+
             const messageData = {
                 conversationId,
                 senderId,
@@ -116,9 +159,13 @@ class ChatController {
             const conv = await Conversation.findById(conversationId);
 
             io.to(conversationId.toString()).emit('newMessage', savedMessage);
-            conv.members.forEach(m => {
-                io.to(m.user.toString()).emit("newMessage_global", savedMessage);
-            });
+            if (conv?.members) {
+                conv.members.forEach((member) => {
+                    const memberUserId = getMemberUserId(member);
+                    if (!memberUserId) return;
+                    io.to(memberUserId.toString()).emit("newMessage_global", savedMessage);
+                });
+            }
 
             res.status(201).json({ success: true, data: savedMessage });
 
@@ -163,16 +210,34 @@ class ChatController {
         }
     }
 
+    async deleteMessageForMe(req, res) {
+        try {
+            const { messageId } = req.body;
+            const userId = req.user.id || req.user._id;
+
+            const data = await chatService.deleteMessageForMe(messageId, userId);
+
+            const io = require('../../shared/utils/socket').getIO();
+            io.to(userId.toString()).emit("message_deleted_for_me", data);
+            io.to(userId.toString()).emit("conversation_updated");
+
+            res.json({ success: true, data });
+        } catch (err) {
+            res.status(400).json({ success: false, message: err.message });
+        }
+    }
+
     //Reaction
     async reactMessage(req, res) {
         try {
-            const { messageId, type } = req.body;
+            const { messageId, type, reactionType } = req.body;
             const userId = req.user.id;
 
-            const updated = await chatService.toggleReaction(messageId, userId, type);
+            const updated = await chatService.toggleReaction(messageId, userId, type || reactionType);
 
             const io = require('../../shared/utils/socket').getIO();
             io.to(updated.conversationId.toString()).emit("message_reaction", updated);
+            io.to(updated.conversationId.toString()).emit("message_reacted", updated);
 
             res.json({ success: true, data: updated });
 
@@ -287,9 +352,7 @@ class ChatController {
             const io = require('../../shared/utils/socket').getIO();
 
             io.to(group._id.toString()).emit("group_created", group);
-            group.members.forEach(m => {
-                io.to(m.user._id.toString()).emit("conversation_updated");
-            });
+            emitConversationUpdatedToMembers(io, group, group);
 
             res.json({
                 success: true,
@@ -318,9 +381,7 @@ class ChatController {
             const io = require('../../shared/utils/socket').getIO();
 
             io.to(conversationId.toString()).emit("group_members_added", updated);
-            updated.members.forEach(m => {
-                io.to(m.user._id.toString()).emit("conversation_updated");
-            });
+            emitConversationUpdatedToMembers(io, updated, updated);
 
             res.json({
                 success: true,
@@ -348,10 +409,16 @@ class ChatController {
 
             const io = require('../../shared/utils/socket').getIO();
 
-            io.to(conversationId.toString()).emit("group_member_removed", updated);
-            updated.members.forEach(m => {
-                io.to(m.user._id.toString()).emit("conversation_updated");
-            });
+            const payload = {
+                conversationId,
+                removedMemberId: memberId,
+                group: updated,
+            };
+
+            io.to(conversationId.toString()).emit("group_member_removed", payload);
+            io.to(memberId.toString()).emit("group_member_removed", payload);
+            io.to(memberId.toString()).emit("conversation_updated", payload);
+            emitConversationUpdatedToMembers(io, updated, updated);
 
             res.json({
                 success: true,
@@ -403,9 +470,7 @@ class ChatController {
             if (updated) {
                 // Nhóm vẫn còn người -> Báo cho những người ở lại
                 io.to(conversationId.toString()).emit("group_left", updated);
-                updated.members.forEach(m => {
-                    io.to(m.user._id.toString()).emit("conversation_updated");
-                });
+                emitConversationUpdatedToMembers(io, updated, updated);
 
                 // Báo cho chính người vừa rời đi biết để App của họ xóa nhóm đó khỏi màn hình
                 io.to(userId.toString()).emit("conversation_updated");
@@ -431,6 +496,39 @@ class ChatController {
         }
     }
 
+    async dissolveGroup(req, res) {
+        try {
+            const { conversationId } = req.body;
+            const adminId = req.user.id;
+
+            const updated = await chatService.dissolveGroup(conversationId, adminId);
+            const io = require('../../shared/utils/socket').getIO();
+            const payload = {
+                conversationId,
+                group: updated,
+                message: "Nhom da giai tan",
+            };
+
+            io.to(conversationId.toString()).emit("group_dissolved", payload);
+            updated?.members?.forEach((member) => {
+                const userId = getMemberUserId(member);
+                if (!userId) return;
+                io.to(userId.toString()).emit("group_dissolved", payload);
+            });
+            emitConversationUpdatedToMembers(io, updated, updated);
+
+            res.json({
+                success: true,
+                data: updated,
+            });
+        } catch (err) {
+            res.status(500).json({
+                success: false,
+                message: err.message,
+            });
+        }
+    }
+
     async updateGroupInfo(req, res) {
         try {
             const { conversationId, name, avatar } = req.body;
@@ -446,9 +544,7 @@ class ChatController {
             const io = require('../../shared/utils/socket').getIO();
 
             io.to(conversationId.toString()).emit("group_info_updated", updated);
-            updated.members.forEach(m => {
-                io.to(m.user._id.toString()).emit("conversation_updated");
-            });
+            emitConversationUpdatedToMembers(io, updated, updated);
 
             res.json({
                 success: true,
@@ -539,9 +635,7 @@ class ChatController {
             const io = require('../../shared/utils/socket').getIO();
 
             io.to(conversationId.toString()).emit("group_admin_changed", updated);
-            updated.members.forEach(m => {
-                io.to(m.user._id.toString()).emit("conversation_updated");
-            });
+            emitConversationUpdatedToMembers(io, updated, updated);
 
             res.json({
                 success: true,
@@ -553,6 +647,35 @@ class ChatController {
                 success: false,
                 message: err.message
             });
+        }
+    }
+
+    async getGroupInvite(req, res) {
+        try {
+            const { conversationId } = req.params;
+            const adminId = req.user.id;
+
+            const invite = await chatService.getGroupInvite(conversationId, adminId);
+            res.json({ success: true, data: invite });
+        } catch (err) {
+            res.status(500).json({ success: false, message: err.message });
+        }
+    }
+
+    async joinGroupByInvite(req, res) {
+        try {
+            const { token } = req.params;
+            const userId = req.user.id;
+
+            const group = await chatService.joinGroupByInvite(token, userId);
+
+            const io = require('../../shared/utils/socket').getIO();
+            io.to(group._id.toString()).emit("group_members_added", group);
+            emitConversationUpdatedToMembers(io, group, group);
+
+            res.json({ success: true, data: group });
+        } catch (err) {
+            res.status(400).json({ success: false, message: err.message });
         }
     }
 }

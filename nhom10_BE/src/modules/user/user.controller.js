@@ -8,7 +8,7 @@ class UserController {
             const keyword = req.query.search;
             const currentUserId = req.user.id;
 
-            let condition = { _id: { $ne: currentUserId } };
+            let condition = { _id: { $ne: currentUserId }, isDeleted: { $ne: true } };
 
             if (keyword) {
                 condition.$or = [
@@ -72,6 +72,16 @@ class UserController {
     }
 
     // 🔥 AVATAR
+    async updatePassword(req, res) {
+        try {
+            const result = await userService.updatePassword(req.user.id, req.body);
+            return res.json(result);
+        } catch (err) {
+            console.error(err);
+            return res.status(400).json({ success: false, message: err.message });
+        }
+    }
+
     async updateAvatar(req, res) {
         try {
             if (!req.file) {
@@ -108,6 +118,16 @@ class UserController {
         } catch (err) {
             console.error("COVER ERROR:", err);
             return res.status(500).json({ success: false, message: err.message });
+        }
+    }
+
+    async deleteMe(req, res) {
+        try {
+            const result = await userService.softDeleteAccount(req.user.id);
+            return res.json(result);
+        } catch (err) {
+            console.error("DELETE ACCOUNT ERROR:", err);
+            return res.status(400).json({ success: false, message: err.message });
         }
     }
 }

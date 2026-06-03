@@ -12,6 +12,8 @@ import {
   FaFileWord,
   FaFileExcel,
   FaFileAlt,
+  FaFileImage,
+  FaFileVideo,
   FaDownload,
   FaFileAudio,
   FaTimes
@@ -29,6 +31,7 @@ import {
   pinMessageAPI,
   getPinnedMessagesAPI,
   unsendMessageAPI,
+  deleteMessageForMeAPI,
   forwardMessageAPI,
   getConversationsAPI,
 } from "../api/chatApi";
@@ -43,18 +46,69 @@ const formatBytes = (bytes, decimals = 2) => {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 };
 
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
 // 👉 HELPER: Lấy icon theo đuôi file
-const getFileIcon = (fileName) => {
-  if (!fileName) return <FaFileAlt size={24} color="#555" />;
+const getFileIcon = (fileName, type = "file", size = 24) => {
+  if (type === "image") return <FaFileImage size={size} color="#0d6efd" />;
+  if (type === "video") return <FaFileVideo size={size} color="#7c3aed" />;
+  if (!fileName) return <FaFileAlt size={size} color="#555" />;
   const ext = fileName.split('.').pop().toLowerCase();
-  if (['pdf'].includes(ext)) return <FaFilePdf size={24} color="#e2574c" />;
-  if (['doc', 'docx'].includes(ext)) return <FaFileWord size={24} color="#1b5eb8" />;
-  if (['xls', 'xlsx', 'csv'].includes(ext)) return <FaFileExcel size={24} color="#107c41" />;
-  if (['mp3', 'wav', 'ogg'].includes(ext)) return <FaFileAudio size={24} color="#f5a623" />;
-  return <FaFileAlt size={24} color="#555" />;
+  if (['pdf'].includes(ext)) return <FaFilePdf size={size} color="#e2574c" />;
+  if (['doc', 'docx'].includes(ext)) return <FaFileWord size={size} color="#1b5eb8" />;
+  if (['xls', 'xlsx', 'csv'].includes(ext)) return <FaFileExcel size={size} color="#107c41" />;
+  if (['mp3', 'wav', 'ogg'].includes(ext)) return <FaFileAudio size={size} color="#f5a623" />;
+  return <FaFileAlt size={size} color="#555" />;
 };
 
-export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
+const AttachmentInfo = ({ message }) => (
+  <div className="d-flex align-items-center gap-2 mt-2 rounded border bg-white px-2 py-1" style={{ minWidth: 0 }}>
+    <div className="flex-shrink-0">{getFileIcon(message.fileName, message.type, 22)}</div>
+    <div className="min-w-0 flex-grow-1">
+      <div className="text-truncate fw-semibold" style={{ fontSize: 13 }} title={message.fileName}>
+        {message.fileName || (message.type === "image" ? "Hinh anh" : message.type === "video" ? "Video" : "Tai lieu")}
+      </div>
+      <div className="text-muted" style={{ fontSize: 11 }}>{formatBytes(message.fileSize)}</div>
+    </div>
+    <a href={message.fileUrl} target="_blank" download={message.fileName} rel="noreferrer" className="btn btn-sm btn-outline-primary rounded-circle d-flex align-items-center justify-content-center" style={{ width: 30, height: 30 }}>
+      <FaDownload size={11} />
+    </a>
+  </div>
+);
+
+const renderTextWithLinks = (text = "") => {
+  const value = String(text);
+  const urlRegex = /(https?:\/\/[^\s]+|\/join-group\/[A-Za-z0-9_-]+)/g;
+  const parts = value.split(urlRegex);
+
+  return parts.map((part, index) => {
+    if (!part.match(urlRegex)) return part;
+
+    const trailing = part.match(/[.,!?)]$/)?.[0] || "";
+    const cleanUrl = trailing ? part.slice(0, -1) : part;
+    const href = cleanUrl.startsWith("/") ? cleanUrl : cleanUrl;
+    const sameOrigin =
+      cleanUrl.startsWith("/") ||
+      (cleanUrl.startsWith(window.location.origin) && cleanUrl.includes("/join-group/"));
+
+    return (
+      <React.Fragment key={`${cleanUrl}-${index}`}>
+        <a
+          href={href}
+          target={sameOrigin ? undefined : "_blank"}
+          rel={sameOrigin ? undefined : "noreferrer"}
+          style={{ color: "#0d6efd", textDecoration: "underline", overflowWrap: "anywhere" }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {cleanUrl}
+        </a>
+        {trailing}
+      </React.Fragment>
+    );
+  });
+};
+
+export default function ChatGroupBox({ selected, setUnreadMap, loadChats, onGroupDissolved }) {
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
 
@@ -75,6 +129,7 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
   const [showPinnedList, setShowPinnedList] = useState(false);
   const [highlightId, setHighlightId] = useState(null);
   const [showGroupInfo, setShowGroupInfo] = useState(false);
+  const [typingUsers, setTypingUsers] = useState({});
   const [cursor, setCursor] = useState(null);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -85,6 +140,8 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
   const isAtBottomRef = useRef(true);
   const pendingScrollRef = useRef(false);
   const loadingMoreRef = useRef(false);
+  const typingTimeoutRef = useRef(null);
+  const isTypingRef = useRef(false);
 
   // Modal Forward
   const [showForwardModal, setShowForwardModal] = useState(false);
@@ -94,11 +151,22 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
   const [isForwarding, setIsForwarding] = useState(false);
 
   const myId = localStorage.getItem("userId");
+  const groupDissolved = selected?.isActive === false;
   const emojiMap = { like: "👍", love: "❤️", haha: "😂", wow: "😮", sad: "😢", angry: "😡" };
 
   const formatTime = (dateString) => {
     if (!dateString) return "";
     return new Date(dateString).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  };
+
+  const getMemberNameById = (userId) => {
+    const member = selected?.members?.find((m) => {
+      const memberUser = m?.user || m;
+      const memberId = typeof memberUser === "object" ? memberUser?._id || memberUser?.id : memberUser;
+      return String(memberId) === String(userId);
+    });
+    const user = member?.user || member;
+    return typeof user === "object" ? user?.fullName || user?.username || "Thanh vien" : "Thanh vien";
   };
 
   const normalizePinnedMessages = (raw = []) => {
@@ -215,8 +283,15 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
       if (String(msgConvId) !== String(roomId)) return;
 
       // 👉 THÊM 2 DÒNG NÀY (Để chặn tin nhắn do chính mình gửi bị in ra 2 lần)
-      const msgSenderId = typeof msg.senderId === "object" ? msg.senderId._id : msg.senderId;
+      const msgSenderId = msg.senderId && typeof msg.senderId === "object" ? msg.senderId._id || msg.senderId.id : msg.senderId;
       if (String(msgSenderId) === String(myId)) return;
+      if (msgSenderId) {
+        setTypingUsers((prev) => {
+          const next = { ...prev };
+          delete next[msgSenderId];
+          return next;
+        });
+      }
 
       if (isAtBottomRef.current) socket.emit("seen", { conversationId: roomId });
       setMessages((prev) => {
@@ -240,7 +315,7 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
         const clone = [...prev];
         for (let i = clone.length - 1; i >= 0; i--) {
           const m = clone[i];
-          const sender = typeof m.senderId === "object" ? m.senderId._id : m.senderId;
+          const sender = m.senderId && typeof m.senderId === "object" ? m.senderId._id || m.senderId.id : m.senderId;
           if (String(sender) !== String(myId)) continue;
           if ((m.deliveredTo || []).some(d => String(d.userId?._id || d.userId) === String(user._id))) break;
           clone[i] = { ...m, status: "delivered", deliveredTo: [...(m.deliveredTo || []), { userId: user, deliveredAt: deliveredAt || new Date() }] };
@@ -252,21 +327,54 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
 
     const handleEdited = (msg) => setMessages((prev) => prev.map((m) => m._id === msg._id ? { ...m, ...msg } : m.replyTo?._id === msg._id ? { ...m, replyTo: { ...m.replyTo, content: msg.content, isEdited: true } } : m));
     const handleDeleted = (msg) => setMessages((prev) => prev.map((m) => m._id === msg._id ? msg : m.replyTo?._id === msg._id ? { ...m, replyTo: { ...m.replyTo, content: "Tin nhắn đã bị thu hồi", isDeleted: true } } : m));
+    const handleDeletedForMe = ({ messageId }) => setMessages((prev) => prev.filter((m) => String(m._id) !== String(messageId)));
     const handleReactionSocket = (msg) => setMessages((prev) => prev.map((m) => (m._id === msg._id ? msg : m)));
     const handlePinnedSocket = (data) => { setPinnedMessages(normalizePinnedMessages(data?.pinnedMessages || [])); setCurrentPinnedIndex(0); };
+    const handleTyping = ({ conversationId, userId, isTyping }) => {
+      if (String(conversationId) !== String(roomId)) return;
+      if (!userId || String(userId) === String(myId)) return;
+
+      setTypingUsers((prev) => {
+        const next = { ...prev };
+        if (isTyping) next[userId] = getMemberNameById(userId);
+        else delete next[userId];
+        return next;
+      });
+    };
+    const handleGroupDissolved = (payload) => {
+      const data = payload?.data || payload;
+      const eventConversationId = data?.conversationId || data?.group?._id || data?._id;
+      if (String(eventConversationId) !== String(roomId)) return;
+
+      setShowEmoji(false);
+      setTypingUsers({});
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      if (isTypingRef.current) socket.emit("typing", { conversationId: roomId, isTyping: false });
+      isTypingRef.current = false;
+      onGroupDissolved?.(data);
+      loadChats?.();
+    };
 
     socket.on("receive_message", handleReceive); socket.on("newMessage", handleReceive);
     socket.on("message_updated", handleEdited); socket.on("message_edited", handleEdited);
-    socket.on("message_deleted", handleDeleted); socket.on("message_reacted", handleReactionSocket);
+    socket.on("message_deleted", handleDeleted); socket.on("message_deleted_for_me", handleDeletedForMe); socket.on("message_reacted", handleReactionSocket);
     socket.on("message_reaction", handleReactionSocket); socket.on("message_pinned", handlePinnedSocket);
     socket.on("message_seen", handleSeen); socket.on("message_delivered", handleDelivered);
+    socket.on("typing", handleTyping);
+    socket.on("group_dissolved", handleGroupDissolved);
 
     return () => {
       socket.off("connect", joinRoom); socket.off("receive_message", handleReceive);
       socket.off("newMessage", handleReceive); socket.off("message_updated", handleEdited);
-      socket.off("message_edited", handleEdited); socket.off("message_deleted", handleDeleted);
+      socket.off("message_edited", handleEdited); socket.off("message_deleted", handleDeleted); socket.off("message_deleted_for_me", handleDeletedForMe);
       socket.off("message_reacted", handleReactionSocket); socket.off("message_reaction", handleReactionSocket);
       socket.off("message_pinned", handlePinnedSocket); socket.off("message_seen", handleSeen); socket.off("message_delivered", handleDelivered);
+      socket.off("typing", handleTyping);
+      socket.off("group_dissolved", handleGroupDissolved);
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      if (isTypingRef.current) socket.emit("typing", { conversationId: roomId, isTyping: false });
+      isTypingRef.current = false;
+      setTypingUsers({});
     };
   }, [selected?._id, myId]);
 
@@ -288,7 +396,12 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
   const handleFileChange = (e) => {
     if (e.target.files) {
       const selectedFiles = Array.from(e.target.files);
-      setFiles((prev) => [...prev, ...selectedFiles]);
+      const validFiles = selectedFiles.filter((file) => file.size <= MAX_FILE_SIZE);
+      if (validFiles.length !== selectedFiles.length) {
+        alert("Khong gui duoc file tren 10MB");
+      }
+      setFiles((prev) => [...prev, ...validFiles]);
+      e.target.value = "";
     }
   };
 
@@ -327,7 +440,9 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
   // ================= SEND MESSAGE =================
   const sendMessage = async () => {
     if (!selected?._id) return;
+    if (groupDissolved) return;
     if (!message.trim() && files.length === 0 && !editingMessage) return;
+    stopTyping();
 
     // Sửa tin nhắn
     if (editingMessage) {
@@ -346,6 +461,10 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
 
     // Gửi FILE trước (Lặp mảng)
     for (const file of files) {
+      if (file.size > MAX_FILE_SIZE) {
+        alert("Khong gui duoc file tren 10MB");
+        continue;
+      }
       const fileUrl = await uploadFile(file);
       if (fileUrl) {
         let type = "file";
@@ -391,6 +510,57 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
     if (el.scrollTop <= 0 && hasMore && !loadingMore) handleLoadMore();
   };
 
+  const emitTyping = (isTyping) => {
+    const socket = getSocket();
+    if (!socket || !selected?._id || groupDissolved) return;
+    socket.emit("typing", { conversationId: selected._id, isTyping });
+  };
+
+  const stopTyping = () => {
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = null;
+
+    if (isTypingRef.current) {
+      emitTyping(false);
+      isTypingRef.current = false;
+    }
+  };
+
+  const handleMessageInputChange = (e) => {
+    const value = e.target.value;
+    setMessage(value);
+
+    if (!value.trim()) {
+      stopTyping();
+      return;
+    }
+
+    if (!isTypingRef.current) {
+      emitTyping(true);
+      isTypingRef.current = true;
+    }
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(stopTyping, 1200);
+  };
+
+  useEffect(() => {
+    if (!selected?._id) return;
+
+    if (!message.trim()) {
+      stopTyping();
+      return;
+    }
+
+    if (!isTypingRef.current) {
+      emitTyping(true);
+      isTypingRef.current = true;
+    }
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(stopTyping, 1200);
+  }, [message, selected?._id]);
+
   const handleReaction = async (m, type) => {
     const res = await reactMessageAPI({ messageId: m._id, type, reactionType: type });
     if (res?.success) setMessages((prev) => prev.map((msg) => (msg._id === m._id ? res.data || msg : msg)));
@@ -416,6 +586,16 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
       if (msg.replyTo?._id === m._id) return { ...msg, replyTo: { ...msg.replyTo, content: "Tin nhắn đã bị thu hồi", isDeleted: true } };
       return msg;
     }));
+    setMenuId(null);
+  };
+
+  const handleDeleteForMe = async (m) => {
+    const res = await deleteMessageForMeAPI({ messageId: m._id });
+    if (res?.success) {
+      setMessages((prev) => prev.filter((msg) => String(msg._id) !== String(m._id)));
+    } else {
+      alert(res?.message || "Khong the xoa tin nhan phia ban");
+    }
     setMenuId(null);
   };
 
@@ -449,9 +629,17 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
 
   // ================= FORMAT GIAO DIỆN TỪNG LOẠI TIN NHẮN =================
   const renderMessage = (m, index) => {
-    const senderId = typeof m.senderId === "object" ? m.senderId._id : m.senderId;
+    const sender = m?.senderId;
+    const senderId = sender && typeof sender === "object" ? sender._id || sender.id : sender;
+    const senderUnavailable = !sender || (typeof sender === "object" && (sender.isDeleted || sender.isLocked));
+    const senderName =
+      senderUnavailable
+        ? "Tai khoan bi khoa"
+        : typeof sender === "object"
+          ? sender.fullName || sender.username || "Thanh vien"
+          : "Thanh vien";
 
-    if (m.type === "system" || m.messageType === "group_event" || !m.senderId) {
+    if (m.type === "system" || m.messageType === "group_event") {
       return (<div key={m._id || index} className="text-center my-3" style={{ fontSize: 13, color: "#666", fontStyle: "italic" }}>{m.content}</div>);
     }
 
@@ -469,7 +657,7 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
       <div id={m._id} key={m._id || index} className={`d-flex mb-4 ${isMine ? "justify-content-end" : "justify-content-start"}`} onMouseEnter={() => setHoverId(m._id)} onMouseLeave={() => setHoverId(null)}>
         <div className="shadow-sm position-relative" style={{ maxWidth: "70%", padding: m.type === "image" ? "4px" : "10px 14px", borderRadius: bubbleRadius, backgroundColor: highlightId === m._id ? "#ffe58f" : bubbleBg, color: "#000", border: m.type === "image" ? "none" : "1px solid #e1e4ea" }}>
 
-          {!isMine && <div style={{ fontSize: 12, fontWeight: 700, color: "#0068ff", marginBottom: 4 }}>{m.senderId?.fullName || "Thành viên"}</div>}
+          {!isMine && <div style={{ fontSize: 12, fontWeight: 700, color: "#0068ff", marginBottom: 4 }}>{senderName}</div>}
 
           {/* REPLY */}
           {m.replyTo && (
@@ -481,7 +669,7 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
                 }, 100);
               }}
             >
-              <b style={{ color: "#0068ff" }}>{m.replyTo?.senderId?.fullName || "Người dùng"}</b>
+              <b style={{ color: "#0068ff" }}>{m.replyTo?.senderId?.fullName || "Tai khoan bi khoa"}</b>
               <div style={{ marginTop: 2, color: "#555" }}>
                 {m.replyTo?.isDeleted ? <i>Tin nhắn đã bị thu hồi</i> : m.replyTo?.type === "image" ? "📷 Hình ảnh" : m.replyTo?.type === "video" ? "🎥 Video" : m.replyTo?.type === "file" ? "📎 File" : m.replyTo?.content}
               </div>
@@ -493,9 +681,19 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
             <i style={{ color: "#999" }}>Tin nhắn đã bị thu hồi</i>
           ) : (
             <>
-              {m.type === "text" && <div style={{ wordBreak: "break-word", fontSize: "15px" }}>{m.content}</div>}
-              {m.type === "image" && <img src={m.fileUrl} alt="" style={{ maxWidth: "100%", borderRadius: "14px", display: "block" }} />}
-              {m.type === "video" && <video controls style={{ maxWidth: "100%", borderRadius: "14px", display: "block", maxHeight: "300px" }}><source src={m.fileUrl} /></video>}
+              {m.type === "text" && <div style={{ wordBreak: "break-word", fontSize: "15px" }}>{renderTextWithLinks(m.content)}</div>}
+              {m.type === "image" && (
+                <div>
+                  <img src={m.fileUrl} alt={m.fileName || ""} style={{ maxWidth: "100%", borderRadius: "14px", display: "block" }} />
+                  <AttachmentInfo message={m} />
+                </div>
+              )}
+              {m.type === "video" && (
+                <div>
+                  <video controls style={{ maxWidth: "100%", borderRadius: "14px", display: "block", maxHeight: "300px" }}><source src={m.fileUrl} /></video>
+                  <AttachmentInfo message={m} />
+                </div>
+              )}
               {m.type === "audio" && <audio controls src={m.fileUrl} style={{ width: "250px", height: "40px", outline: "none" }} />}
 
               {/* 👉 GIAO DIỆN FILE DOC, PDF, XLS */}
@@ -532,6 +730,7 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
 
           {menuId === m._id && (
             <div className="shadow-sm border" style={{ position: "absolute", top: "10px", right: isMine ? "100%" : "auto", left: isMine ? "auto" : "100%", marginRight: isMine ? "10px" : "0", marginLeft: !isMine ? "10px" : "0", background: "#ffffff", borderRadius: "8px", minWidth: "170px", zIndex: 100, padding: "6px 0", fontSize: "14px" }}>
+              <div className="d-flex align-items-center px-3 py-2 text-danger" style={{ cursor: "pointer" }} onClick={() => handleDeleteForMe(m)}><span className="me-3"><FaTrash /></span> Xóa phía tôi</div>
               <div className="d-flex align-items-center px-3 py-2" style={{ cursor: "pointer" }} onClick={() => { setReplyMessage(m); setMenuId(null); }}><span className="me-3"><FaReply /></span> Trả lời</div>
               <div className="d-flex align-items-center px-3 py-2 hover-bg" style={{ cursor: "pointer", transition: "0.2s" }} onClick={() => handleOpenForwardModal(m)}><span className="me-3 text-secondary"><FaShare /></span> Chuyển tiếp</div>
               <div className="d-flex align-items-center px-3 py-2" style={{ cursor: "pointer" }} onClick={() => { pinnedMessages.some((p) => p.message?._id === m._id) ? handleUnpin(m) : handlePin(m); setMenuId(null); }}><span className="me-3"><FaThumbtack /></span> {pinnedMessages.some((p) => p.message?._id === m._id) ? "Bỏ ghim" : "Ghim"}</div>
@@ -559,6 +758,14 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
       </div>
     );
   };
+
+  const typingNames = Object.values(typingUsers);
+  const typingText =
+    typingNames.length === 1
+      ? `${typingNames[0]} dang nhap...`
+      : typingNames.length > 1
+        ? `${typingNames.slice(0, 2).join(", ")} dang nhap...`
+        : "";
 
   return (
     <div className="col-9 d-flex flex-column h-100 border-start border-end p-0 position-relative">
@@ -592,6 +799,18 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
         {messages.map((m, i) => renderMessage(m, i))}
         <div ref={bottomRef}></div>
       </div>
+
+      {groupDissolved && (
+        <div className="px-3 py-2 bg-light border-top text-center text-muted" style={{ fontSize: 14 }}>
+          Nhom da giai tan. Ban chi co the xem lai lich su tro chuyen.
+        </div>
+      )}
+
+      {typingText && !groupDissolved && (
+        <div className="px-3 py-1 bg-white border-top text-muted" style={{ fontSize: 13, fontStyle: "italic" }}>
+          {typingText}
+        </div>
+      )}
 
       {replyMessage && (
         <div className="px-3 py-2 border-top bg-light">
@@ -627,8 +846,13 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
         </div>
       )}
 
+      {groupDissolved ? (
+        <div className="p-2 border-top bg-white text-center text-muted">
+          Nhom da giai tan, khong the nhan tin tiep.
+        </div>
+      ) : (
       <div className="p-2 border-top d-flex align-items-center gap-2 bg-white">
-        <button className="btn btn-light" onClick={() => fileInputRef.current.click()}>+</button>
+        <button className="btn btn-light" onClick={() => fileInputRef.current.click()} disabled={groupDissolved}>+</button>
         {/* 👉 THÊM THUỘC TÍNH multiple ĐỂ CHỌN NHIỀU FILE */}
         <input type="file" multiple hidden ref={fileInputRef} onChange={handleFileChange} />
 
@@ -639,8 +863,9 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
           {isSendingFiles ? <span className="spinner-border spinner-border-sm" /> : "Gửi"}
         </button>
       </div>
+      )}
 
-      {showEmoji && <div style={{ position: "absolute", bottom: 72, right: 40, zIndex: 9999 }}><EmojiPicker onEmojiClick={handleEmojiClick} /></div>}
+      {showEmoji && !groupDissolved && <div style={{ position: "absolute", bottom: 72, right: 40, zIndex: 9999 }}><EmojiPicker onEmojiClick={handleEmojiClick} /></div>}
 
       <GroupInfoModal show={showGroupInfo} conversationId={selected?._id} onClose={() => setShowGroupInfo(false)} loadChats={loadChats} />
 
@@ -674,3 +899,4 @@ export default function ChatGroupBox({ selected, setUnreadMap, loadChats }) {
     </div>
   );
 }
+

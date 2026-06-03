@@ -6,9 +6,12 @@ import {
   addMembersAPI,
   removeMemberAPI,
   leaveGroupAPI,
+  dissolveGroupAPI,
   promoteAdminAPI,
   updateGroupInfoAPI,
+  getGroupInviteAPI,
 } from "../api/chatApi";
+import { onGroupDissolved, offGroupDissolved } from "../socket/socket";
 
 export default function GroupInfoModal({
   show,
@@ -24,6 +27,7 @@ export default function GroupInfoModal({
   const [editAvatar, setEditAvatar] = useState("");
 
   const [selectedMember, setSelectedMember] = useState(null);
+  const [inviteToken, setInviteToken] = useState("");
 
   // Mảng chứa ID những người đã được mình gửi lời mời kết bạn
   const [sentRequestIds, setSentRequestIds] = useState([]);
@@ -35,6 +39,30 @@ export default function GroupInfoModal({
     loadGroupInfo();
     loadFriends();
     loadFriendRequests(); // 👉 BƯỚC 1: Gọi hàm lấy danh sách lời mời ngay khi mở Modal
+  }, [show, conversationId]);
+
+  useEffect(() => {
+    if (!show || !conversationId) return;
+
+    const handleGroupDissolved = (payload) => {
+      const data = payload?.data || payload;
+      const eventConversationId = data?.conversationId || data?.group?._id || data?._id;
+      if (String(eventConversationId) !== String(conversationId)) return;
+
+      setGroupInfo((prev) => ({
+        ...(prev || data?.group || {}),
+        ...(data?.group || {}),
+        _id: eventConversationId,
+        isActive: false,
+      }));
+      setSelectedAdd([]);
+      setInviteToken("");
+      setSelectedMember(null);
+      loadChats?.();
+    };
+
+    onGroupDissolved(handleGroupDissolved);
+    return () => offGroupDissolved(handleGroupDissolved);
   }, [show, conversationId]);
 
   if (!show) return null;
@@ -91,6 +119,8 @@ export default function GroupInfoModal({
   const isAdmin = groupInfo?.members?.some(
     (m) => String(m.user?._id) === String(myId) && m.role === "admin"
   );
+  const isGroupDissolved = groupInfo?.isActive === false;
+  const inviteUrl = inviteToken ? `${window.location.origin}/join-group/${inviteToken}` : "";
 
   const checkIsFriend = (userId) => {
     return friends.some((f) => {
@@ -134,6 +164,15 @@ export default function GroupInfoModal({
     }
   };
 
+  const handleLoadInvite = async () => {
+    const res = await getGroupInviteAPI(conversationId);
+    if (res?.success) {
+      setInviteToken(res.data?.token || "");
+    } else {
+      alert(res?.message || "Khong the tao link moi nhom");
+    }
+  };
+
   const handleRemoveMember = async (memberId) => {
     if (!window.confirm("Xóa thành viên này khỏi nhóm?")) return;
 
@@ -158,6 +197,27 @@ export default function GroupInfoModal({
     if (res?.success) {
       onClose();
       await loadChats();
+    }
+  };
+
+  const handleDissolveGroup = async () => {
+    if (!isAdmin) return;
+    if (!window.confirm("Ban chac chan muon giai tan nhom nay? Tat ca thanh vien se khong the nhan tin tiep.")) return;
+
+    const res = await dissolveGroupAPI({ conversationId });
+
+    if (res?.success) {
+      setGroupInfo((prev) => ({
+        ...(prev || {}),
+        ...(res.data || {}),
+        isActive: false,
+      }));
+      setSelectedAdd([]);
+      setInviteToken("");
+      setSelectedMember(null);
+      await loadChats();
+    } else {
+      alert(res?.message || "Khong the giai tan nhom");
     }
   };
 
@@ -240,7 +300,14 @@ export default function GroupInfoModal({
             />
           </div>
 
-          {isAdmin ? (
+          {isGroupDissolved ? (
+            <div className="text-center">
+              <div className="fw-bold fs-5 mb-2">{groupInfo?.name}</div>
+              <div className="alert alert-warning py-2 mb-0">
+                Nhom da giai tan
+              </div>
+            </div>
+          ) : isAdmin ? (
             <>
               <input
                 className="form-control mb-2"
@@ -264,6 +331,8 @@ export default function GroupInfoModal({
             <div className="text-center fw-bold fs-5 mb-3">{groupInfo?.name}</div>
           )}
 
+          {!isGroupDissolved && (
+            <>
           <hr />
 
           <div className="fw-bold mb-2">
@@ -273,6 +342,7 @@ export default function GroupInfoModal({
           {groupInfo?.members?.map((m) => {
             const isMe = String(m.user?._id) === String(myId);
             const isFriend = checkIsFriend(m.user?._id);
+            const unavailable = Boolean(m.user?.isDeleted || m.user?.isLocked);
             // 👉 BƯỚC 3: Dùng mảng sentRequestIds (đã lấy từ API) để quyết định UI
             const isSentRequest = sentRequestIds.includes(String(m.user?._id));
 
@@ -297,17 +367,20 @@ export default function GroupInfoModal({
                   />
                   <div>
                     <div className="fw-semibold">
-                      {m.user?.fullName} {isMe && "(Bạn)"}
+                      {m.user?.fullName || "Thanh vien"} {isMe && "(Ban)"}
                       {m.role === "admin" && (
                         <span className="badge bg-warning text-dark ms-2">Admin</span>
                       )}
+                      {unavailable && (
+                        <span className="badge bg-secondary ms-2">Tai khoan bi khoa</span>
+                      )}
                     </div>
-                    <small className="text-muted">{m.user?.email}</small>
+                    <small className="text-muted">{unavailable ? "" : m.user?.email}</small>
                   </div>
                 </div>
 
                 <div className="d-flex gap-2">
-                  {!isMe && !isFriend && (
+                  {!unavailable && !isMe && !isFriend && (
                     isSentRequest ? (
                       <button className="btn btn-sm btn-secondary" disabled>
                         Đã gửi lời mời
@@ -322,7 +395,7 @@ export default function GroupInfoModal({
                     )
                   )}
 
-                  {isAdmin && !isMe && (
+                  {isAdmin && !isMe && !unavailable && (
                     <>
                       <button
                         className="btn btn-sm btn-warning"
@@ -395,19 +468,51 @@ export default function GroupInfoModal({
               <button className="btn btn-success w-100 mt-2" onClick={handleAddMembers}>
                 Thêm vào nhóm
               </button>
+              <div className="border rounded p-3 mt-3">
+                <div className="fw-bold mb-2">Them thanh vien bang duong link</div>
+                {!inviteToken ? (
+                  <button className="btn btn-outline-primary w-100" onClick={handleLoadInvite}>
+                    Tao link moi nhom
+                  </button>
+                ) : (
+                  <div>
+                    <div className="input-group input-group-sm">
+                      <input className="form-control" readOnly value={inviteUrl} />
+                      <button
+                        className="btn btn-outline-secondary"
+                        type="button"
+                        onClick={() => navigator.clipboard?.writeText(inviteUrl)}
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    <small className="text-muted">Nguoi dung mo link va dang nhap de tham gia nhom.</small>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
             </>
           )}
 
           <hr />
 
-          <div className="d-flex justify-content-between">
+          <div className="d-flex justify-content-between align-items-center gap-2">
             <button className="btn btn-danger" onClick={handleLeaveGroup}>
               Rời nhóm
             </button>
 
+            {isAdmin && !isGroupDissolved && (
+              <button className="btn btn-outline-danger ms-2" onClick={handleDissolveGroup}>
+                Giai tan nhom
+              </button>
+            )}
+
+            {!isGroupDissolved && (
             <button className="btn btn-secondary" onClick={onClose}>
               Đóng
             </button>
+            )}
           </div>
         </div>
       </div>
@@ -473,3 +578,6 @@ export default function GroupInfoModal({
     </>
   );
 }
+
+
+

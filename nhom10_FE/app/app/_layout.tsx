@@ -62,12 +62,14 @@ const RootNavigator = () => {
         <>
           <Stack.Screen name="(auth)/login" />
           <Stack.Screen name="(auth)/register" />
+          <Stack.Screen name="group/join/[token]" />
         </>
       ) : (
         <>
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="chat/[id]" />
           <Stack.Screen name="group/[id]" />
+          <Stack.Screen name="group/join/[token]" />
           <Stack.Screen name="group/settings/[id]" />
           <Stack.Screen
             name="call/CallScreen"

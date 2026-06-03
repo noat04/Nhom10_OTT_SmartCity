@@ -22,7 +22,10 @@ const registerVerifyOTP = async (req, res) => {
 const login = async (req, res) => {
     try {
         const { email, password } = req.body;
-        const result = await authService.login(email, password);
+        const result = await authService.login(email, password, {
+            ip: req.ip,
+            userAgent: req.headers['user-agent'] || ''
+        });
 
         res.json(result);
     } catch (err) {

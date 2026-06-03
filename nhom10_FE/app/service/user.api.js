@@ -10,3 +10,17 @@ export const updateAvatarAPI = (formData) =>
       "Content-Type": "multipart/form-data",
     },
   });
+
+export const updatePasswordAPI = (data) => api.put("/users/password", data);
+
+export const updateCoverAPI = (formData) =>
+  api.post("/users/cover", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+  });
+
+export const deleteMeAPI = () => api.delete("/users/me");
+
+export const searchUsersProfileAPI = (search) =>
+  api.get("/users/search", { params: { search } });

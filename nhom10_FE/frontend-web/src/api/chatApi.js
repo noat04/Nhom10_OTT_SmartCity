@@ -106,6 +106,20 @@ export const getOrCreatePrivateConversationAPI = async (friendId) => {
   }
 };
 
+export const getPrivateUserInfoAPI = async (partnerId) => {
+  try {
+    const res = await api.get(`/chat/private/${partnerId}/info`);
+    return res.data;
+  } catch (err) {
+    console.error("getPrivateUserInfoAPI:", err?.response?.data || err.message);
+    return {
+      success: false,
+      message: err?.response?.data?.message || "Khong the lay thong tin nguoi dung",
+      data: null,
+    };
+  }
+};
+
 // ==============================
 // ☁️ LẤY PRESIGNED URL (UPLOAD FILE)
 // ==============================
@@ -158,6 +172,19 @@ export const unsendMessageAPI = async (data) => {
 export const deleteMessageAPI = async (data) => {
   const res = await api.delete("/chat/message/delete", { data });
   return res.data;
+};
+
+export const deleteMessageForMeAPI = async (data) => {
+  try {
+    const res = await api.delete("/chat/message/delete-for-me", { data });
+    return res.data;
+  } catch (err) {
+    console.error("deleteMessageForMeAPI:", err?.response?.data || err.message);
+    return {
+      success: false,
+      message: err?.response?.data?.message || "Khong the xoa tin nhan phia ban",
+    };
+  }
 };
 
 
@@ -246,6 +273,19 @@ export const leaveGroupAPI = async (data) => {
   }
 };
 
+export const dissolveGroupAPI = async (data) => {
+  try {
+    const res = await api.post("/chat/group/dissolve", data);
+    return res.data;
+  } catch (err) {
+    console.error("dissolveGroupAPI:", err?.response?.data || err.message);
+    return {
+      success: false,
+      message: err?.response?.data?.message || "Khong the giai tan nhom",
+    };
+  }
+};
+
 export const promoteAdminAPI = async (data) => {
   try {
     const res = await api.post("/chat/group/promote-admin", data);
@@ -281,4 +321,24 @@ export const createGroupAPI = async (data) => {
     };
   }
   // >>>>>>> origin/dam
+};
+
+export const getGroupInviteAPI = async (conversationId) => {
+  try {
+    const res = await api.get(`/chat/group/${conversationId}/invite`);
+    return res.data;
+  } catch (err) {
+    console.error("getGroupInviteAPI:", err?.response?.data || err.message);
+    return { success: false, message: err?.response?.data?.message };
+  }
+};
+
+export const joinGroupByInviteAPI = async (token) => {
+  try {
+    const res = await api.post(`/chat/group/join/${token}`);
+    return res.data;
+  } catch (err) {
+    console.error("joinGroupByInviteAPI:", err?.response?.data || err.message);
+    return { success: false, message: err?.response?.data?.message || "Khong the tham gia nhom" };
+  }
 };

@@ -5,12 +5,15 @@ import ChatPage from "./pages/ChatPage";
 import AuthPage from "./pages/AuthPage";
 import OtpPage from "./pages/OtpPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import AdminPage from "./pages/AdminPage";
+import JoinGroupPage from "./pages/JoinGroupPage";
 
 import { useAuth } from "./context/AuthContext";
 import { getSocket } from "./socket/socket"; // CHỈ IMPORT getSocket
 
 export default function App() {
   const { user, login, logout } = useAuth();
+  const isAdmin = user?.role === "admin" || user?.isAdmin;
 
   useEffect(() => {
     if (!user) return;
@@ -42,9 +45,11 @@ export default function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/login" element={!user ? <AuthPage /> : <Navigate to="/" replace />} />
-        <Route path="/otp" element={!user ? <OtpPage onLogin={login} /> : <Navigate to="/" replace />} />
-        <Route path="/" element={user ? <ChatPage onLogout={logout} /> : <Navigate to="/login" replace />} />
+        <Route path="/login" element={!user ? <AuthPage /> : <Navigate to={isAdmin ? "/admin" : "/"} replace />} />
+        <Route path="/otp" element={!user ? <OtpPage onLogin={login} /> : <Navigate to={isAdmin ? "/admin" : "/"} replace />} />
+        <Route path="/admin" element={user && isAdmin ? <AdminPage /> : <Navigate to="/" replace />} />
+        <Route path="/join-group/:token" element={<JoinGroupPage />} />
+        <Route path="/" element={user ? (isAdmin ? <Navigate to="/admin" replace /> : <ChatPage onLogout={logout} />) : <Navigate to="/login" replace />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

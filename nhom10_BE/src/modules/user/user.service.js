@@ -1,6 +1,7 @@
 const User = require('../../../models/user');
 const { uploadFile, deleteFileByUrl } = require('../../../config/s3');
 const { getIO } = require('../../shared/utils/socket');
+const bcrypt = require('bcrypt');
 
 class UserService {
 
@@ -9,6 +10,25 @@ class UserService {
     if (!user) throw new Error("Không tìm thấy user");
 
     return { success: true, user };
+  }
+
+  async softDeleteAccount(userId) {
+    const user = await User.findById(userId);
+    if (!user) throw new Error("Khong tim thay user");
+    if (user.role === "admin") throw new Error("Khong the xoa tai khoan admin tu quyen nguoi dung");
+
+    user.isDeleted = true;
+    user.deletedAt = new Date();
+    user.currentToken = null;
+    user.refreshToken = "";
+    user.status = "offline";
+    await user.save();
+
+    const io = getIO();
+    io.to(user._id.toString()).emit("force_logout");
+    io.emit("conversation_updated");
+
+    return { success: true, message: "Da xoa tai khoan" };
   }
 
   // ================= UPDATE PROFILE =================
@@ -59,6 +79,39 @@ class UserService {
     io.to(user._id.toString()).emit("user_updated", { user });
 
     return { success: true, user };
+  }
+
+  async updatePassword(userId, data) {
+    const { currentPassword, newPassword, confirmPassword } = data;
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      throw new Error("Vui long nhap day du thong tin mat khau");
+    }
+
+    if (newPassword.length < 6) {
+      throw new Error("Mat khau moi toi thieu 6 ky tu");
+    }
+
+    if (newPassword !== confirmPassword) {
+      throw new Error("Mat khau moi va xac nhan mat khau khong khop");
+    }
+
+    if (currentPassword === newPassword) {
+      throw new Error("Mat khau moi phai khac mat khau hien tai");
+    }
+
+    const user = await User.findById(userId).select("+password");
+    if (!user) throw new Error("User khong ton tai");
+
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      throw new Error("Mat khau hien tai khong dung");
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
+
+    return { success: true, message: "Doi mat khau thanh cong" };
   }
 
   // ================= AVATAR =================

@@ -18,6 +18,10 @@ const conversationSchema = new mongoose.Schema({
         type: String,
         default: ""
     },
+    inviteToken: {
+        type: String,
+        default: ""
+    },
     createdBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'

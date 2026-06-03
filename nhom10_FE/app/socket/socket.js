@@ -1,7 +1,7 @@
 import { io } from "socket.io-client";
+import { API_ORIGIN } from "../service/network.config";
 
 let socket = null;
-const LOCAL_IP = "192.168.1.16"; // IP máy tính chạy backend
 
 // ======================================
 // 1. KẾT NỐI VÀ QUẢN LÝ SOCKET
@@ -9,7 +9,7 @@ const LOCAL_IP = "192.168.1.16"; // IP máy tính chạy backend
 export const connectSocket = (token) => {
   if (socket) return socket;
 
-  socket = io(`http://${LOCAL_IP}:3000`, {
+  socket = io(API_ORIGIN, {
     auth: { token },
     transports: ["websocket", "polling"],
   });

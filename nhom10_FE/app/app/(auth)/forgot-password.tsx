@@ -1,6 +1,6 @@
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { Text, TextInput, TouchableOpacity, View } from "react-native";
+import { StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { forgotPasswordAPI } from "../../service/auth.api";
 
 export default function ForgotPassword() {
@@ -28,7 +28,7 @@ export default function ForgotPassword() {
           type: "reset", // 🔥 phân biệt flow
         },
       });
-    } catch (err) {
+    } catch (err: any) {
       alert(err.response?.data?.message || "Lỗi gửi OTP");
     } finally {
       setLoading(false);
@@ -55,7 +55,7 @@ export default function ForgotPassword() {
   );
 }
 
-const styles = {
+const styles = StyleSheet.create({
   input: {
     borderWidth: 1,
     marginBottom: 10,
@@ -68,4 +68,4 @@ const styles = {
     alignItems: "center",
     borderRadius: 5,
   },
-};
+});

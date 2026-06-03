@@ -4,7 +4,10 @@ import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   Image,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,7 +16,12 @@ import {
   View,
 } from "react-native";
 import { useAuth } from "../../context/authContext";
-import { updateAvatarAPI, updateMeAPI } from "../../service/user.api";
+import {
+  deleteMeAPI,
+  updateAvatarAPI,
+  updateMeAPI,
+  updatePasswordAPI,
+} from "../../service/user.api";
 import { getSocket } from "../../socket/socket";
 
 export interface IUser {
@@ -34,6 +42,11 @@ export default function Profile() {
 
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordLoading, setPasswordLoading] = useState(false);
 
   useEffect(() => {
     const socket = getSocket();
@@ -51,7 +64,13 @@ export default function Profile() {
     });
 
     return () => socket.off("user_updated");
-  }, []);
+  }, [setUser]);
+
+  const resetPasswordForm = () => {
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+  };
 
   // 🔥 chưa có user
   if (!user) {
@@ -151,6 +170,76 @@ export default function Profile() {
     router.replace("/(auth)/login");
   };
 
+  const handleUpdatePassword = async () => {
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      Alert.alert("Thong bao", "Vui long nhap day du thong tin mat khau");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      Alert.alert("Thong bao", "Mat khau moi va xac nhan mat khau khong khop");
+      return;
+    }
+
+    try {
+      setPasswordLoading(true);
+      const res = await updatePasswordAPI({
+        currentPassword,
+        newPassword,
+        confirmPassword,
+      });
+
+      if (res?.data?.success === false) {
+        throw new Error(res?.data?.message || "Doi mat khau that bai");
+      }
+
+      setShowPasswordModal(false);
+      resetPasswordForm();
+      Alert.alert("Thanh cong", res?.data?.message || "Doi mat khau thanh cong");
+    } catch (err: any) {
+      const message =
+        err?.response?.data?.message || err?.message || "Doi mat khau that bai";
+      Alert.alert("Loi", message);
+    } finally {
+      setPasswordLoading(false);
+    }
+  };
+
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      "Xoa tai khoan",
+      "Tai khoan se bi khoa va nguoi khac se khong the nhan tin voi ban. Ban co chac chan muon tiep tuc?",
+      [
+        { text: "Huy", style: "cancel" },
+        {
+          text: "Xoa",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setLoading(true);
+              const res = await deleteMeAPI();
+
+              if (res?.data?.success === false) {
+                throw new Error(res?.data?.message || "Xoa tai khoan that bai");
+              }
+
+              await logout();
+              router.replace("/(auth)/login");
+            } catch (err: any) {
+              const message =
+                err?.response?.data?.message ||
+                err?.message ||
+                "Xoa tai khoan that bai";
+              Alert.alert("Loi", message);
+            } finally {
+              setLoading(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   return (
     <ScrollView
       style={styles.container}
@@ -234,6 +323,22 @@ export default function Profile() {
         </Text>
       </TouchableOpacity>
 
+      <TouchableOpacity
+        style={[styles.btn, styles.passwordBtn]}
+        onPress={() => setShowPasswordModal(true)}
+        disabled={loading}
+      >
+        <Text style={styles.btnText}>Doi mat khau</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.btn, styles.deleteBtn]}
+        onPress={handleDeleteAccount}
+        disabled={loading}
+      >
+        <Text style={styles.btnText}>Xoa tai khoan</Text>
+      </TouchableOpacity>
+
       {/* LOGOUT */}
       <TouchableOpacity
         style={[styles.btn, styles.logoutBtn]}
@@ -247,6 +352,73 @@ export default function Profile() {
           Đang xử lý...
         </Text>
       )}
+      <Modal
+        visible={showPasswordModal}
+        animationType="fade"
+        transparent
+        onRequestClose={() => {
+          setShowPasswordModal(false);
+          resetPasswordForm();
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Doi mat khau</Text>
+
+            <TextInput
+              value={currentPassword}
+              onChangeText={setCurrentPassword}
+              placeholder="Mat khau hien tai"
+              placeholderTextColor="#9ca3af"
+              secureTextEntry
+              style={styles.passwordInput}
+            />
+
+            <TextInput
+              value={newPassword}
+              onChangeText={setNewPassword}
+              placeholder="Mat khau moi"
+              placeholderTextColor="#9ca3af"
+              secureTextEntry
+              style={styles.passwordInput}
+            />
+
+            <TextInput
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              placeholder="Xac nhan mat khau moi"
+              placeholderTextColor="#9ca3af"
+              secureTextEntry
+              style={styles.passwordInput}
+            />
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.cancelBtn]}
+                onPress={() => {
+                  setShowPasswordModal(false);
+                  resetPasswordForm();
+                }}
+                disabled={passwordLoading}
+              >
+                <Text style={styles.cancelBtnText}>Huy</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.confirmBtn]}
+                onPress={handleUpdatePassword}
+                disabled={passwordLoading}
+              >
+                {passwordLoading ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Text style={styles.btnText}>Luu</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -319,5 +491,59 @@ const styles = StyleSheet.create({
 
   logoutBtn: { backgroundColor: "red" },
 
+  passwordBtn: { backgroundColor: "#2563eb" },
+
+  deleteBtn: { backgroundColor: "#b91c1c" },
+
   btnText: { color: "white", fontWeight: "bold" },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+  },
+
+  modalCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 12,
+    padding: 18,
+  },
+
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 14,
+    textAlign: "center",
+  },
+
+  passwordInput: {
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    marginBottom: 12,
+    color: "#111827",
+  },
+
+  modalActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 4,
+  },
+
+  modalBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+
+  cancelBtn: { backgroundColor: "#f3f4f6" },
+
+  confirmBtn: { backgroundColor: "#0d6efd" },
+
+  cancelBtnText: { color: "#374151", fontWeight: "700" },
 });

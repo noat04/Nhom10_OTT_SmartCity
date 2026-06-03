@@ -13,6 +13,7 @@ router.use(verifyToken);
 // ======================================
 router.post('/init-1-1', chatController.initOneToOneChat);
 router.get('/conversations', chatController.getConversations);
+router.get('/private/:partnerId/info', chatController.getPrivateUserInfo);
 
 // ======================================
 // MESSAGE APIs
@@ -23,6 +24,7 @@ router.put('/message/edit', chatController.editMessage);
 router.put('/message/unsend', chatController.unsendMessage);
 
 router.delete('/message/delete', chatController.deleteMessage);
+router.delete('/message/delete-for-me', chatController.deleteMessageForMe);
 
 router.post('/message/react', chatController.reactMessage);
 
@@ -43,6 +45,8 @@ router.post('/group/remove-member', chatController.removeMember);
 
 router.post('/group/leave', chatController.leaveGroup);
 
+router.post('/group/dissolve', chatController.dissolveGroup);
+
 router.put('/group/update-info', chatController.updateGroupInfo);
 
 router.get('/group/:conversationId/members', chatController.getGroupMembers);
@@ -50,6 +54,9 @@ router.get('/group/:conversationId/members', chatController.getGroupMembers);
 router.get('/group/:conversationId/info', chatController.getGroupInfo);
 
 router.post('/group/promote-admin', chatController.promoteAdmin);
+
+router.get('/group/:conversationId/invite', chatController.getGroupInvite);
+router.post('/group/join/:token', chatController.joinGroupByInvite);
 
 // ======================================
 // HISTORY (KEEP LAST TO AVOID CONFLICT)

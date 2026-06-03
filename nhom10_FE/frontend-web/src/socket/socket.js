@@ -4,19 +4,21 @@ let socket = null;
 
 export const connectSocket = (token) => {
   if (socket) {
-    // Nếu biến socket còn tồn tại nhưng đường truyền bị ngắt -> chủ động ép nó kết nối lại
-    if (!socket.connected) {
-      socket.connect();
+    if (socket.auth?.token !== token) {
+      socket.disconnect();
+      socket = null;
+    } else {
+      // Nếu biến socket còn tồn tại nhưng đường truyền bị ngắt -> chủ động ép nó kết nối lại
+      if (!socket.connected) {
+        socket.connect();
+      }
+      return socket;
     }
-    return socket;
   }
 
-  const socket = io(import.meta.env.VITE_SOCKET_URL, {
-    auth: {
-      token,
-    },
+  socket = io("http://localhost:3000", {
+    auth: { token },
     transports: ["websocket", "polling"],
-    autoConnect: true,
   });
   socket.on("connect", () => {
     console.log("✅ Socket connected:", socket.id);
@@ -88,6 +90,16 @@ export const offFriendRequestSent = (callback) => {
 };
 
 // ✅ conversation realtime
+export const onFriendRemoved = (callback) => {
+  if (!socket) return;
+  socket.on("friend_removed", callback);
+};
+
+export const offFriendRemoved = (callback) => {
+  if (!socket) return;
+  socket.off("friend_removed", callback);
+};
+
 export const onConversationCreated = (callback) => {
   if (!socket) return;
   socket.on("conversation_created", callback);
@@ -132,9 +144,19 @@ export const onGroupCreated = (callback) => {
   socket.on("group_created", callback);
 };
 
+export const offGroupCreated = (callback) => {
+  if (!socket) return;
+  socket.off("group_created", callback);
+};
+
 export const onGroupInfoUpdated = (callback) => {
   if (!socket) return;
   socket.on("group_info_updated", callback);
+};
+
+export const offGroupInfoUpdated = (callback) => {
+  if (!socket) return;
+  socket.off("group_info_updated", callback);
 };
 
 export const onGroupMembersAdded = (callback) => {
@@ -142,14 +164,39 @@ export const onGroupMembersAdded = (callback) => {
   socket.on("group_members_added", callback);
 };
 
+export const offGroupMembersAdded = (callback) => {
+  if (!socket) return;
+  socket.off("group_members_added", callback);
+};
+
 export const onGroupMemberRemoved = (callback) => {
   if (!socket) return;
   socket.on("group_member_removed", callback);
 };
 
+export const offGroupMemberRemoved = (callback) => {
+  if (!socket) return;
+  socket.off("group_member_removed", callback);
+};
+
 export const onGroupLeft = (callback) => {
   if (!socket) return;
   socket.on("group_left", callback);
+};
+
+export const offGroupLeft = (callback) => {
+  if (!socket) return;
+  socket.off("group_left", callback);
+};
+
+export const onGroupDissolved = (callback) => {
+  if (!socket) return;
+  socket.on("group_dissolved", callback);
+};
+
+export const offGroupDissolved = (callback) => {
+  if (!socket) return;
+  socket.off("group_dissolved", callback);
 };
 
 export const onGroupAdminChanged = (callback) => {
@@ -191,6 +238,16 @@ export const onMessageDeleted = (callback) => {
 export const offMessageDeleted = (callback) => {
   if (!socket) return;
   socket.off("message_deleted", callback);
+};
+
+export const onMessageDeletedForMe = (callback) => {
+  if (!socket) return;
+  socket.on("message_deleted_for_me", callback);
+};
+
+export const offMessageDeletedForMe = (callback) => {
+  if (!socket) return;
+  socket.off("message_deleted_for_me", callback);
 };
 
 export const onMessageReacted = (callback) => {

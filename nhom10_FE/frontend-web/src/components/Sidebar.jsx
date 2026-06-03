@@ -30,6 +30,7 @@ export default function Sidebar({
   const menuRef = useRef();
 
   const [aiSessions, setAiSessions] = useState([]);
+  const myId = localStorage.getItem("userId");
 
   // Combobox lọc loại hội thoại: "all" | "private" | "group"
   const [chatFilter, setChatFilter] = useState("all");
@@ -127,11 +128,41 @@ export default function Sidebar({
     setSendingRequest(false);
   };
 
+  const formatLastMessagePreview = (chat) => {
+    const msg = chat?.latestMessage;
+    if (!msg) return "Chua co tin nhan";
+
+    const senderId =
+      typeof msg.senderId === "object"
+        ? msg.senderId?._id || msg.senderId?.id
+        : msg.senderId;
+    const isMine = String(senderId) === String(myId);
+    const senderName =
+      typeof msg.senderId === "object"
+        ? msg.senderId?.fullName || msg.senderId?.username || ""
+        : "";
+    const prefix = isMine ? "Ban: " : chat.type === "group" && senderName ? `${senderName}: ` : "";
+
+    if (msg.isUnsent) return `${prefix}Tin nhan da thu hoi`;
+    if (msg.type === "image") return `${prefix}Da gui anh`;
+    if (msg.type === "video") return `${prefix}Da gui video`;
+    if (msg.type === "file") return `${prefix}Da gui file`;
+    if (msg.type === "call") return `${prefix}Cuoc goi`;
+    return `${prefix}${msg.content || "Tin nhan"}`;
+  };
+
   return (
     <>
       <div
         className="col-3 bg-white p-2"
-        style={{ width: "320px", overflowY: "auto", borderRight: "1px solid #eee" }}
+        style={{
+          width: "320px",
+          height: "100%",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+          borderRight: "1px solid #eee",
+        }}
       >
         <div
           className="d-flex align-items-center px-2 position-relative"
@@ -205,12 +236,12 @@ export default function Sidebar({
           )}
         </div>
 
-        <div className="mt-3">
+        <div className="mt-3 d-flex flex-column" style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
           {/* ======================= TAB CHAT ======================= */}
           {tab === "chat" && (
-            <>
+            <div className="d-flex flex-column h-100" style={{ minHeight: 0 }}>
               {/* Combobox lọc nhanh */}
-              <div className="d-flex gap-2 px-1 mb-2">
+              <div className="d-flex gap-2 px-1 mb-2 flex-shrink-0">
                 {[
                   { value: "all", label: "Tất cả" },
                   { value: "private", label: "1-1" },
@@ -237,6 +268,7 @@ export default function Sidebar({
                 ))}
               </div>
 
+              <div style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 2 }}>
               {filteredContacts.length === 0 ? (
                 <div className="p-3 text-muted text-center">Không có cuộc trò chuyện</div>
               ) : (
@@ -255,7 +287,7 @@ export default function Sidebar({
                     return msg.content || "Tin nhắn";
                   };
 
-                  const lastMessage = getLastMessageText(chat.latestMessage || chat.lastMessage);
+                  const lastMessage = formatLastMessagePreview(chat);
                   const avatar =
                     chat.avatar && String(chat.avatar).trim()
                       ? chat.avatar
@@ -308,7 +340,8 @@ export default function Sidebar({
                   );
                 })
               )}
-            </>
+              </div>
+            </div>
           )}
 
           {/* ======================= TAB FRIENDS ======================= */}

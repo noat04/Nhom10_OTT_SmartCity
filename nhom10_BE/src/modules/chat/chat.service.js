@@ -2,8 +2,43 @@ const Conversation = require("../../../models/conversation");
 const Message = require("../../../models/message");
 const User = require("../../../models/user");
 const FileUpload = require('../../../models/fileupload');
+const Friend = require("../../../models/friend");
 
 const mongoose = require("mongoose");
+const crypto = require("crypto");
+
+const DELETED_USER_NAME = "Tai khoan bi khoa";
+const USER_SELECT = "fullName username email avatar status isLocked isDeleted deletedAt";
+
+const normalizeUser = (user) => {
+    if (!user) return user;
+    return user;
+};
+
+const normalizeConversationUsers = (conversation) => {
+    if (!conversation?.members) return conversation;
+    conversation.members = conversation.members
+        .filter(m => m.user != null)
+        .map(m => ({
+            ...m,
+            user: typeof m.user === "object" ? normalizeUser(m.user) : m.user
+        }));
+    return conversation;
+};
+
+const getMemberUserId = (member) => {
+    const hasUserField = member && typeof member === "object" && "user" in member;
+    const user = hasUserField ? member.user : member;
+    if (!user) return null;
+    if (typeof user === "object") return user._id || user.id || null;
+    return user;
+};
+
+const isMemberUser = (member, userId) => {
+    const memberUserId = getMemberUserId(member);
+    return Boolean(memberUserId && userId && memberUserId.toString() === userId.toString());
+};
+
 class ChatService {
     // 1. LẤY HOẶC TẠO CUỘC HỘI THOẠI 1-1
     async getOrCreateOneToOneConversation(user1Id, user2Id) {
@@ -34,6 +69,49 @@ class ChatService {
     // 2. SAVE MESSAGE (FULL FEATURE)
     // ==============================
     async saveMessage(data) {
+        const conversation = await Conversation.findById(data.conversationId)
+            .populate("members.user", USER_SELECT);
+
+        if (!conversation) throw new Error("Cuoc tro chuyen khong ton tai");
+
+        if (conversation.type === "group" && conversation.isActive === false) {
+            throw new Error("Nhom da giai tan, khong the gui tin nhan");
+        }
+
+        const senderMember = conversation.members.find(
+            m => m.user?._id?.toString() === data.senderId.toString()
+        );
+        if (!senderMember || senderMember.user?.isDeleted || senderMember.user?.isLocked) {
+            throw new Error("Tai khoan khong duoc phep gui tin nhan");
+        }
+
+        if (conversation.type === "private") {
+            const partnerMember = conversation.members.find(
+                m => m.user?._id?.toString() !== data.senderId.toString()
+            );
+            const partnerId = partnerMember?.user?._id;
+            const friendship = partnerId
+                ? await Friend.findOne({
+                    status: "accepted",
+                    $or: [
+                        { userId: data.senderId, friendId: partnerId },
+                        { userId: partnerId, friendId: data.senderId },
+                    ],
+                })
+                : null;
+
+            if (!friendship) {
+                throw new Error("Chua ket ban, chi co the xem lai cuoc tro chuyen truoc do");
+            }
+
+            const blockedPartner = conversation.members.find(
+                m => m.user?._id?.toString() !== data.senderId.toString() && (m.user?.isDeleted || m.user?.isLocked)
+            );
+            if (blockedPartner) {
+                throw new Error("Khong the nhan tin voi tai khoan da xoa hoac bi khoa");
+            }
+        }
+
         const newMessage = await Message.create({
             ...data,
             status: 'sent',
@@ -67,25 +145,28 @@ class ChatService {
         }
 
         return await Message.findById(newMessage._id)
-            .populate('senderId', 'fullName avatar')
-            .populate('mentions', 'fullName avatar')
+            .populate('senderId', USER_SELECT)
+            .populate('mentions', USER_SELECT)
             .populate({
                 path: 'replyTo',
                 populate: {
                     path: 'senderId',
-                    select: 'fullName avatar'
+                    select: USER_SELECT
                 }
             })
-            .populate('reactions.userId', 'fullName avatar')
-            .populate('seenBy.userId', 'fullName avatar')
-            .populate('deliveredTo.userId', 'fullName avatar');
+            .populate('reactions.userId', USER_SELECT)
+            .populate('seenBy.userId', USER_SELECT)
+            .populate('deliveredTo.userId', USER_SELECT);
     }
 
     // ==============================
     // 3. GET HISTORY (FIX REPLY)
     // ==============================
-    async getConversationHistory(conversationId, cursor = null, limit = 20) {
-        let query = { conversationId };
+    async getConversationHistory(conversationId, userId, cursor = null, limit = 20) {
+        let query = {
+            conversationId,
+            deletedFor: { $ne: userId }
+        };
 
         // 🔥 Nếu có cursor → lấy tin cũ hơn
         if (cursor) {
@@ -137,7 +218,7 @@ class ChatService {
     //     const conversations = await Conversation.find({
     //         'members.user': userId
     //     })
-    //         .populate('members.user', 'fullName avatar status')
+    //         .populate('members.user', USER_SELECT)
     //         .populate({
     //             path: 'latestMessage',
     //             populate: {
@@ -174,20 +255,34 @@ class ChatService {
         const conversations = await Conversation.find({
             'members.user': userId
         })
-            .populate('members.user', 'fullName avatar status')
+            .populate('members.user', USER_SELECT)
             .populate({
                 path: 'latestMessage',
                 populate: {
                     path: 'senderId',
-                    select: 'fullName avatar'
+                    select: USER_SELECT
                 }
             })
             .sort({ updatedAt: -1 })
             .lean();
 
-        return conversations.map(c => {
+        return Promise.all(conversations.map(async (c) => {
+            const latestMessage = await Message.findOne({
+                conversationId: c._id,
+                deletedFor: { $ne: userId }
+            })
+                .sort({ createdAt: -1 })
+                .populate("senderId", USER_SELECT)
+                .lean();
+
+            c.latestMessage = latestMessage || c.latestMessage || null;
             // 👉 1. BƯỚC QUAN TRỌNG: Lọc bỏ ngay những member bị null (do user đã bị xóa khỏi DB)
-            const validMembers = c.members.filter(m => m.user != null);
+            const validMembers = c.members
+                .filter(m => m.user != null)
+                .map(m => ({
+                    ...m,
+                    user: normalizeUser(m.user)
+                }));
 
             // Gán lại mảng members sạch (không chứa null) để frontend không bị lỗi hiển thị
             c.members = validMembers;
@@ -200,12 +295,25 @@ class ChatService {
                 )?.user;
 
                 if (partner) {
-                    c.name = partner.fullName;
+                    const friendship = await Friend.findOne({
+                        $or: [
+                            { userId, friendId: partner._id },
+                            { userId: partner._id, friendId: userId },
+                        ],
+                    }).select("status").lean();
+
+                    c.name = partner.fullName || partner.username || DELETED_USER_NAME;
                     c.avatar = partner.avatar;
+                    c.partnerDeleted = Boolean(partner.isDeleted || partner.isLocked);
+                    c.friendshipStatus = friendship?.status || "none";
+                    c.canSendMessage = c.friendshipStatus === "accepted" && !c.partnerDeleted;
                 } else {
                     // 👉 3. Fallback: Nếu partner đã bị xóa tài khoản hoàn toàn
                     c.name = "Người dùng đã xóa";
                     c.avatar = "https://i.pravatar.cc/150";
+                    c.partnerDeleted = true;
+                    c.friendshipStatus = "none";
+                    c.canSendMessage = false;
                 }
             }
 
@@ -216,7 +324,7 @@ class ChatService {
             }
 
             return c;
-        });
+        }));
     }
 
     // ==============================
@@ -297,23 +405,47 @@ class ChatService {
         return message;
     }
 
+    async deleteMessageForMe(messageId, userId) {
+        const message = await Message.findById(messageId);
+        if (!message) throw new Error("Message not found");
+
+        const conversation = await Conversation.findOne({
+            _id: message.conversationId,
+            "members.user": userId
+        }).select("_id");
+
+        if (!conversation) {
+            throw new Error("Khong co quyen thao tac tin nhan nay");
+        }
+
+        const alreadyDeleted = (message.deletedFor || []).some(
+            id => id.toString() === userId.toString()
+        );
+
+        if (!alreadyDeleted) {
+            message.deletedFor.push(userId);
+            await message.save();
+        }
+
+        return {
+            messageId: message._id,
+            conversationId: message.conversationId,
+        };
+    }
+
     async toggleReaction(messageId, userId, type) {
         const message = await Message.findById(messageId);
 
         if (!message) throw new Error("Message not found");
 
         const existing = message.reactions.find(
-            r => r.userId.toString() === userId.toString()
+            r => r.userId.toString() === userId.toString() && r.type === type
         );
 
         if (existing) {
-            if (existing.type === type) {
-                message.reactions = message.reactions.filter(
-                    r => r.userId.toString() !== userId.toString()
-                );
-            } else {
-                existing.type = type;
-            }
+            message.reactions = message.reactions.filter(
+                r => !(r.userId.toString() === userId.toString() && r.type === type)
+            );
         } else {
             message.reactions.push({ userId, type });
         }
@@ -444,7 +576,9 @@ class ChatService {
             // B. Bắn cho TẤT CẢ THÀNH VIÊN để nảy chấm đỏ ở màn hình ngoài
             if (conv && Array.isArray(conv.members)) {
                 conv.members.forEach(m => {
-                    const memberIdStr = m.user._id ? m.user._id.toString() : m.user.toString();
+                    const memberId = getMemberUserId(m);
+                    if (!memberId) return;
+                    const memberIdStr = memberId.toString();
 
                     // Gửi tín hiệu đến từng điện thoại của user
                     io.to(memberIdStr).emit("newMessage_global", populatedMsg);
@@ -485,7 +619,7 @@ class ChatService {
         });
 
         return await Conversation.findById(newGroup._id)
-            .populate("members.user", "fullName avatar status")
+            .populate("members.user", USER_SELECT)
             .populate("latestMessage");
     }
 
@@ -494,20 +628,24 @@ class ChatService {
 
         if (!conversation) throw new Error("Nhóm không tồn tại");
 
-        const admin = conversation.members.find(
-            m => m.user.toString() === adminId.toString()
-        );
+        const admin = conversation.members.find((m) => isMemberUser(m, adminId));
 
         if (!admin || admin.role !== 'admin') {
             throw new Error("Chỉ admin mới được thêm thành viên");
         }
 
+        const allowedUsers = await User.find({
+            _id: { $in: newMemberIds },
+            isDeleted: { $ne: true },
+            isLocked: { $ne: true }
+        }).select("_id");
+        const allowedIds = new Set(allowedUsers.map(u => u._id.toString()));
         const addedUsers = [];
 
         newMemberIds.forEach(id => {
-            const exists = conversation.members.some(
-                m => m.user.toString() === id.toString()
-            );
+            if (!allowedIds.has(id.toString())) return;
+
+            const exists = conversation.members.some((m) => isMemberUser(m, id));
 
             if (!exists) {
                 conversation.members.push({
@@ -530,7 +668,7 @@ class ChatService {
         }
 
         return await Conversation.findById(conversationId)
-            .populate("members.user", "fullName avatar status")
+            .populate("members.user", USER_SELECT)
             .populate("latestMessage");
     }
 
@@ -539,17 +677,13 @@ class ChatService {
 
         if (!conversation) throw new Error("Nhóm không tồn tại");
 
-        const admin = conversation.members.find(
-            m => m.user.toString() === adminId.toString()
-        );
+        const admin = conversation.members.find((m) => isMemberUser(m, adminId));
 
         if (!admin || admin.role !== 'admin') {
             throw new Error("Chỉ admin mới được xóa thành viên");
         }
 
-        conversation.members = conversation.members.filter(
-            m => m.user.toString() !== memberId.toString()
-        );
+        conversation.members = conversation.members.filter((m) => !isMemberUser(m, memberId));
 
         await conversation.save();
 
@@ -561,7 +695,7 @@ class ChatService {
         );
 
         return await Conversation.findById(conversationId)
-            .populate("members.user", "fullName avatar status")
+            .populate("members.user", USER_SELECT)
             .populate("latestMessage");
     }
 
@@ -584,7 +718,7 @@ class ChatService {
     //     );
 
     //     return await Conversation.findById(conversationId)
-    //         .populate("members.user", "fullName avatar status")
+    //         .populate("members.user", USER_SELECT)
     //         .populate("latestMessage");
     // }
     async leaveGroup(conversationId, userId) {
@@ -593,17 +727,13 @@ class ChatService {
         if (!conversation) throw new Error("Nhóm không tồn tại");
 
         // 1. Tìm người dùng chuẩn bị rời đi và kiểm tra xem có phải admin không
-        const leavingMember = conversation.members.find(
-            m => m.user.toString() === userId.toString()
-        );
+        const leavingMember = conversation.members.find((m) => isMemberUser(m, userId));
 
         if (!leavingMember) throw new Error("Bạn không ở trong nhóm này");
         const isAdmin = leavingMember.role === 'admin';
 
         // 2. Lọc bỏ người này ra khỏi mảng members
-        conversation.members = conversation.members.filter(
-            m => m.user.toString() !== userId.toString()
-        );
+        conversation.members = conversation.members.filter((m) => !isMemberUser(m, userId));
 
         // 3. KIỂM TRA SỐ LƯỢNG THÀNH VIÊN SAU KHI RỜI ĐI
         if (conversation.members.length === 0) {
@@ -648,7 +778,38 @@ class ChatService {
         );
 
         return await Conversation.findById(conversationId)
-            .populate("members.user", "fullName avatar status")
+            .populate("members.user", USER_SELECT)
+            .populate("latestMessage");
+    }
+
+    async dissolveGroup(conversationId, adminId) {
+        const conversation = await Conversation.findOne({ _id: conversationId, type: "group" });
+        if (!conversation) throw new Error("Nhom khong ton tai");
+
+        const admin = conversation.members.find((m) => isMemberUser(m, adminId));
+        if (!admin || admin.role !== "admin") {
+            throw new Error("Chi admin moi duoc giai tan nhom");
+        }
+
+        if (conversation.isActive === false) {
+            return await Conversation.findById(conversationId)
+                .populate("members.user", USER_SELECT)
+                .populate("latestMessage");
+        }
+
+        conversation.isActive = false;
+        conversation.inviteToken = "";
+        await conversation.save();
+
+        await this.createSystemMessage(
+            conversationId,
+            adminId,
+            "Nhom da giai tan",
+            "dissolve_group"
+        );
+
+        return await Conversation.findById(conversationId)
+            .populate("members.user", USER_SELECT)
             .populate("latestMessage");
     }
 
@@ -657,9 +818,7 @@ class ChatService {
 
         if (!conversation) throw new Error("Nhóm không tồn tại");
 
-        const admin = conversation.members.find(
-            m => m.user.toString() === adminId.toString()
-        );
+        const admin = conversation.members.find((m) => isMemberUser(m, adminId));
 
         if (!admin || admin.role !== 'admin') {
             throw new Error("Chỉ admin mới được sửa thông tin nhóm");
@@ -678,13 +837,13 @@ class ChatService {
         );
 
         return await Conversation.findById(conversationId)
-            .populate("members.user", "fullName avatar status")
+            .populate("members.user", USER_SELECT)
             .populate("latestMessage");
     }
 
     async getGroupMembers(conversationId) {
         const conversation = await Conversation.findById(conversationId)
-            .populate("members.user", "fullName avatar status");
+            .populate("members.user", USER_SELECT);
 
         if (!conversation) throw new Error("Nhóm không tồn tại");
 
@@ -742,9 +901,8 @@ class ChatService {
             const conv = await Conversation.findById(conversationId);
             if (conv && Array.isArray(conv.members)) {
                 conv.members.forEach(m => {
-                    if (m.user) {
-                        io.to(m.user.toString()).emit("newMessage_global", populatedMsg);
-                    }
+                    const memberId = getMemberUserId(m);
+                    if (memberId) io.to(memberId.toString()).emit("newMessage_global", populatedMsg);
                 });
             }
         } catch (error) {
@@ -809,7 +967,7 @@ class ChatService {
 
     async getGroupInfo(conversationId) {
         const conversation = await Conversation.findById(conversationId)
-            .populate("members.user", "fullName avatar status")
+            .populate("members.user", USER_SELECT)
             .populate("createdBy", "fullName avatar")
             .populate({
                 path: "latestMessage",
@@ -830,22 +988,48 @@ class ChatService {
         return conversation;
     }
 
+    async getPrivateUserInfo(currentUserId, partnerId) {
+        if (!mongoose.Types.ObjectId.isValid(partnerId)) {
+            throw new Error("partnerId khong hop le");
+        }
+
+        const user = await User.findById(partnerId).select(USER_SELECT).lean();
+        if (!user || user.isDeleted) {
+            throw new Error("Khong tim thay nguoi dung");
+        }
+
+        const commonGroups = await Conversation.find({
+            type: "group",
+            isActive: { $ne: false },
+            "members.user": { $all: [currentUserId, partnerId] },
+        })
+            .select("name avatar members updatedAt")
+            .sort({ updatedAt: -1 })
+            .lean();
+
+        return {
+            user,
+            commonGroups: commonGroups.map((group) => ({
+                _id: group._id,
+                name: group.name || "Nhom chat",
+                avatar: group.avatar || "",
+                memberCount: Array.isArray(group.members) ? group.members.length : 0,
+            })),
+        };
+    }
+
     async promoteAdmin(conversationId, currentAdminId, targetUserId) {
         const conversation = await Conversation.findById(conversationId);
 
         if (!conversation) throw new Error("Nhóm không tồn tại");
 
-        const currentAdmin = conversation.members.find(
-            m => m.user.toString() === currentAdminId.toString()
-        );
+        const currentAdmin = conversation.members.find((m) => isMemberUser(m, currentAdminId));
 
         if (!currentAdmin || currentAdmin.role !== "admin") {
             throw new Error("Chỉ admin hiện tại mới có quyền chuyển quyền");
         }
 
-        const targetMember = conversation.members.find(
-            m => m.user.toString() === targetUserId.toString()
-        );
+        const targetMember = conversation.members.find((m) => isMemberUser(m, targetUserId));
 
         if (!targetMember) {
             throw new Error("Người được chuyển quyền không ở trong nhóm");
@@ -867,10 +1051,59 @@ class ChatService {
         );
 
         return await Conversation.findById(conversationId)
-            .populate("members.user", "fullName avatar status")
+            .populate("members.user", USER_SELECT)
+            .populate("latestMessage");
+    }
+
+    async getGroupInvite(conversationId, adminId) {
+        const conversation = await Conversation.findOne({ _id: conversationId, type: "group" });
+        if (!conversation) throw new Error("Nhom khong ton tai");
+
+        const admin = conversation.members.find((m) => isMemberUser(m, adminId));
+        if (!admin || admin.role !== "admin") {
+            throw new Error("Chi admin moi duoc tao link moi nhom");
+        }
+
+        if (!conversation.inviteToken) {
+            conversation.inviteToken = crypto.randomBytes(24).toString("hex");
+            await conversation.save();
+        }
+
+        return {
+            conversationId: conversation._id,
+            token: conversation.inviteToken
+        };
+    }
+
+    async joinGroupByInvite(token, userId) {
+        if (!token) throw new Error("Thieu ma moi nhom");
+
+        const user = await User.findById(userId);
+        if (!user || user.isDeleted || user.isLocked) {
+            throw new Error("Tai khoan khong duoc phep tham gia nhom");
+        }
+
+        const conversation = await Conversation.findOne({
+            type: "group",
+            inviteToken: token,
+            isActive: { $ne: false }
+        });
+        if (!conversation) throw new Error("Ma moi nhom khong hop le");
+
+        const exists = conversation.members.some((m) => isMemberUser(m, userId));
+
+        if (!exists) {
+            conversation.members.push({ user: userId, role: "member" });
+            await conversation.save();
+            await this.createSystemMessage(conversation._id, userId, "da tham gia nhom bang link moi", "add_member");
+        }
+
+        return await Conversation.findById(conversation._id)
+            .populate("members.user", USER_SELECT)
             .populate("latestMessage");
     }
 
 }
 
 module.exports = new ChatService();
+

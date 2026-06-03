@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { loginAPI, registerAPI } from "../api/authApi";
 import { getSocket } from "../socket/socket";
 import { useAuth } from "../context/AuthContext";
@@ -20,6 +20,7 @@ export default function AuthPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
 
   const navigate = useNavigate();
+  const location = useLocation();
 
   // ================= SOCKET SYNC =================
   useEffect(() => {
@@ -102,7 +103,9 @@ export default function AuthPage() {
           login(res.user, res.token); // 🔥 dùng context
 
           alert("Đăng nhập thành công!");
-          navigate("/", { replace: true });
+          const isAdmin = res.user?.role === "admin" || res.user?.isAdmin;
+          const redirectTo = location.state?.from || (isAdmin ? "/admin" : "/");
+          navigate(redirectTo, { replace: true });
         } else {
           setErrors({ general: res.message });
         }

@@ -38,7 +38,8 @@ const messageSchema = new mongoose.Schema({
             'leave_group',
             'rename_group',
             'change_avatar',
-            'promote_admin'
+            'promote_admin',
+            'dissolve_group'
         ],
         default: null
     },
@@ -130,6 +131,13 @@ const messageSchema = new mongoose.Schema({
     },
 
     // Thu hồi tin nhắn (từ nhánh đồng nghiệp)
+    deletedFor: [
+        {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User'
+        }
+    ],
+
     isUnsent: {
         type: Boolean,
         default: false

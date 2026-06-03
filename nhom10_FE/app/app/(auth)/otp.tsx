@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
-import { Text, TextInput, TouchableOpacity, View } from "react-native";
+import { StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import {
   registerVerifyOtpAPI,
   verifyResetOtpAPI,
@@ -54,7 +54,7 @@ export default function Otp() {
         alert("Chức năng OTP này không tồn tại");
       }
 
-    } catch (err) {
+    } catch (err: any) {
       console.log("❌ VERIFY ERROR:", err.response?.data || err.message);
       alert(err.response?.data?.message || "Sai OTP");
     }
@@ -85,7 +85,7 @@ export default function Otp() {
   );
 }
 
-const styles = {
+const styles = StyleSheet.create({
   input: {
     borderWidth: 1,
     marginBottom: 10,
@@ -98,4 +98,4 @@ const styles = {
     alignItems: "center",
     borderRadius: 5,
   },
-};
+});

@@ -13,6 +13,7 @@ const userRoutes = require('./modules/user/user.route');
 const friendRoutes = require('./modules/friend/friend.route');
 const uploadRoutes = require('./modules/upload/upload.route');
 const aiRoutes = require('./modules/ai/ai.router');
+const adminRoutes = require('./modules/admin/admin.route');
 // MongoDB connection
 //const connectMongoDB = require('./src/shared/configs/mongodb');
 
@@ -57,6 +58,7 @@ app.use('/api/users', verifyToken, userRoutes);
 app.use('/api/friend', verifyToken, friendRoutes);
 app.use('/api/upload', verifyToken, uploadRoutes);
 app.use('/api/ai', verifyToken, aiRoutes);
+app.use('/api/admin', adminRoutes);
 // Test auth
 app.get('/api/test-auth', verifyToken, (req, res) => {
   res.json({

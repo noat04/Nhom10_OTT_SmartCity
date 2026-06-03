@@ -9,6 +9,8 @@ const groupChatSocket = require('./socket/groupChat.socket');
 const onlineUsers = new Map();
 let io;
 
+const getOnlineUserIds = () => Array.from(onlineUsers.keys());
+
 module.exports = {
     init: (server) => {
         io = socketIo(server, {
@@ -59,7 +61,7 @@ module.exports = {
             onlineUsers.get(userId).add(socket.id);
 
             // ✅ gửi list online cho chính user mới
-            socket.emit("online_list", Array.from(onlineUsers.keys()));
+            socket.emit("online_list", getOnlineUserIds());
 
             // ✅ báo cho người khác biết user này online
             socket.broadcast.emit("user_online", userId);
@@ -74,6 +76,10 @@ module.exports = {
             groupChatSocket(io, socket, userId);
 
             socket.currentConversationId = null;
+
+            socket.on("get_online_users", () => {
+                socket.emit("online_list", getOnlineUserIds());
+            });
 
             // 2. THAM GIA PHÒNG CHAT (Nhớ toString conversationId)
             socket.on('joinConversation', async (conversationId) => {
@@ -153,11 +159,11 @@ module.exports = {
             });
             socket.on("seen", async ({ conversationId }) => {
                 try {
-                    await chatService.markAsSeen(conversationId, userId);
                     const seenMessages = await chatService.markAsSeen(conversationId, userId);
 
                     io.to(conversationId.toString()).emit("message_seen", {
                         conversationId,
+                        userId,
                         seenMessages
                     });
                 } catch (error) {
@@ -215,5 +221,7 @@ module.exports = {
     getIO: () => {
         if (!io) throw new Error("Socket.io chưa được khởi tạo!");
         return io;
-    }
+    },
+
+    getOnlineUsers: () => onlineUsers
 };

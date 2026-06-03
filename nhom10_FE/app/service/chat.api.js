@@ -30,7 +30,7 @@ export const initOneToOneChatAPI = async (partnerId) => {
   }
 };
 
-export const getMessagesAPI = async (conversationId, cursor = null) => {
+export const getMessagesAPI = async (conversationId, cursor) => {
   try {
     const params = {};
 
@@ -145,6 +145,26 @@ export const deleteMessageAPI = async (data) => {
   return res.data;
 };
 
+export const unsendMessageAPI = async (data) => {
+  const res = await api.put("/chat/message/unsend", data);
+  return res.data;
+};
+
+export const deleteMessageForMeAPI = async (data) => {
+  const res = await api.delete("/chat/message/delete-for-me", { data });
+  return res.data;
+};
+
+export const getPrivateUserInfoAPI = async (partnerId) => {
+  try {
+    const res = await api.get(`/chat/private/${partnerId}/info`);
+    return res.data;
+  } catch (err) {
+    console.log("❌ getPrivateUserInfoAPI:", err?.response?.data || err.message);
+    return { success: false, data: null, message: err?.response?.data?.message };
+  }
+};
+
 // =========================================================================
 // ============================== GROUP CHAT ===============================
 // =========================================================================
@@ -252,5 +272,38 @@ export const promoteGroupAdminAPI = async (payload) => {
       success: false,
       message: err?.response?.data?.message || "Lỗi chuyển quyền Admin",
     };
+  }
+};
+
+export const dissolveGroupAPI = async (payload) => {
+  try {
+    const res = await api.post("/chat/group/dissolve", payload);
+    return res.data;
+  } catch (err) {
+    console.log("❌ dissolveGroupAPI:", err?.response?.data || err.message);
+    return {
+      success: false,
+      message: err?.response?.data?.message || "Lỗi giải tán nhóm",
+    };
+  }
+};
+
+export const getGroupInviteAPI = async (conversationId) => {
+  try {
+    const res = await api.get(`/chat/group/${conversationId}/invite`);
+    return res.data;
+  } catch (err) {
+    console.log("❌ getGroupInviteAPI:", err?.response?.data || err.message);
+    return { success: false, data: null, message: err?.response?.data?.message };
+  }
+};
+
+export const joinGroupByInviteAPI = async (token) => {
+  try {
+    const res = await api.post(`/chat/group/join/${token}`);
+    return res.data;
+  } catch (err) {
+    console.log("❌ joinGroupByInviteAPI:", err?.response?.data || err.message);
+    return { success: false, message: err?.response?.data?.message || "Lỗi tham gia nhóm" };
   }
 };

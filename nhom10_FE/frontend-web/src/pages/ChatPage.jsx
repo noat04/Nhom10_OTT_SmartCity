@@ -15,12 +15,22 @@ import {
   offNewMessageGlobal,
   onFriendRequestReceived,
   offFriendRequestReceived,
+  onFriendRemoved,
+  offFriendRemoved,
   onConversationUpdated,
+  offConversationUpdated,
   onGroupCreated,
+  offGroupCreated,
   onGroupInfoUpdated,
+  offGroupInfoUpdated,
   onGroupMembersAdded,
+  offGroupMembersAdded,
   onGroupMemberRemoved,
+  offGroupMemberRemoved,
   onGroupLeft,
+  offGroupLeft,
+  onGroupDissolved,
+  offGroupDissolved,
 } from "../socket/socket";
 import { FaRobot } from "react-icons/fa";
 
@@ -149,6 +159,8 @@ export default function ChatPage() {
     const shouldResolveFromMembers =
       !conversation.name?.trim() || !conversation.avatar?.trim();
 
+    let partnerUnavailable = Boolean(conversation.partnerDeleted);
+
     if (shouldResolveFromMembers && Array.isArray(conversation.members)) {
       const otherMember = conversation.members.find((m) => {
         const memberUser = m?.user;
@@ -166,6 +178,7 @@ export default function ChatPage() {
       if (otherUser) {
         name = otherUser.fullName || otherUser.name || otherUser.username || name;
         avatar = otherUser.avatar || otherUser.profilePicture || avatar;
+        partnerUnavailable = partnerUnavailable || Boolean(otherUser.isDeleted || otherUser.isLocked);
       }
     }
 
@@ -175,6 +188,12 @@ export default function ChatPage() {
       conversationId: conversation._id,
       name,
       avatar,
+      partnerDeleted: partnerUnavailable,
+      friendshipStatus: conversation.friendshipStatus || "accepted",
+      canSendMessage:
+        conversation.canSendMessage !== undefined
+          ? conversation.canSendMessage
+          : !partnerUnavailable,
       latestMessage: conversation.latestMessage || null,
       updatedAt:
         conversation.latestMessage?.createdAt ||
@@ -240,6 +259,17 @@ export default function ChatPage() {
 
       setContacts(finalList);
 
+      setSelected((prev) => {
+        if (!prev || prev?.isAI) return prev;
+
+        const selectedId = prev?._id || prev?.conversationId;
+        const freshSelected = finalList.find(
+          (item) => String(item?._id || item?.conversationId) === String(selectedId)
+        );
+
+        return freshSelected ? { ...prev, ...freshSelected } : prev;
+      });
+
       if (finalList.length > 0 && !selected && tab === "chat") {
         setSelected(finalList[0]);
       }
@@ -257,6 +287,58 @@ export default function ChatPage() {
     } else {
       setHasNewFriendRequest(false);
     }
+  };
+
+  const handleFriendRemoved = ({ friendId, friendshipStatus = "rejected" }) => {
+    if (!friendId) return;
+
+    const markConversationLocked = (item) => {
+      if (item?.type !== "private" || !Array.isArray(item.members)) return item;
+
+      const hasFriend = item.members.some((member) => {
+        const memberUser = member?.user || member;
+        const memberUserId =
+          typeof memberUser === "object" ? memberUser?._id || memberUser?.id : memberUser;
+
+        return String(memberUserId) === String(friendId);
+      });
+
+      return hasFriend
+        ? { ...item, friendshipStatus, canSendMessage: false }
+        : item;
+    };
+
+    setContacts((prev) => prev.map(markConversationLocked));
+    setSelected((prev) => (prev ? markConversationLocked(prev) : prev));
+  };
+
+  const markGroupDissolved = (payload) => {
+    const data = payload?.data || payload;
+    const group = data?.group || data;
+    const conversationId = data?.conversationId || data?.group?._id || data?._id || group?._id;
+    if (!conversationId) return;
+
+    const normalized = normalizeConversation({
+      ...group,
+      _id: group?._id || conversationId,
+      conversationId: group?._id || conversationId,
+      isActive: false,
+    });
+
+    setContacts((prev) => {
+      const updated = prev.map((item) => {
+        const itemId = item?._id || item?.conversationId;
+        if (String(itemId) !== String(conversationId)) return item;
+        return normalized ? { ...item, ...normalized, isActive: false } : { ...item, isActive: false };
+      });
+      return dedupeAndSortContacts(updated);
+    });
+
+    setSelected((prev) => {
+      const selectedId = prev?._id || prev?.conversationId;
+      if (String(selectedId) !== String(conversationId)) return prev;
+      return normalized ? { ...prev, ...normalized, isActive: false } : { ...prev, isActive: false };
+    });
   };
 
   useEffect(() => {
@@ -403,19 +485,89 @@ export default function ChatPage() {
   }, [tab, friendSection]);
 
   useEffect(() => {
+    const handleFriendRemovedRealtime = (payload) => {
+      const data = payload?.data || payload;
+      const otherUserId =
+        String(data?.userId) === String(currentUserId) ? data?.friendId : data?.userId;
+
+      if (!otherUserId) return;
+
+      handleFriendRemoved({
+        friendId: otherUserId,
+        friendshipStatus: data?.friendshipStatus || "rejected",
+      });
+    };
+
+    onFriendRemoved(handleFriendRemovedRealtime);
+    return () => {
+      offFriendRemoved(handleFriendRemovedRealtime);
+    };
+  }, [currentUserId]);
+
+  useEffect(() => {
+    const getConversationId = (payload) => {
+      const data = payload?.data || payload;
+      return data?.conversationId || data?.group?._id || data?._id || null;
+    };
+
+    const removeGroupLocally = (conversationId) => {
+      if (!conversationId) return;
+
+      setContacts((prev) =>
+        prev.filter((item) => String(item?._id || item?.conversationId) !== String(conversationId))
+      );
+
+      setSelected((prev) => {
+        const selectedId = prev?._id || prev?.conversationId;
+        return String(selectedId) === String(conversationId) ? null : prev;
+      });
+
+      setUnreadMap((prev) => {
+        const next = { ...prev };
+        delete next[conversationId];
+        return next;
+      });
+    };
+
     const refreshChats = () => {
       loadChats();
+    };
+
+    const handleGroupMemberRemoved = (payload) => {
+      const data = payload?.data || payload;
+      const removedMemberId = data?.removedMemberId;
+      const conversationId = getConversationId(data);
+
+      if (removedMemberId && String(removedMemberId) === String(currentUserId)) {
+        removeGroupLocally(conversationId);
+        return;
+      }
+
+      loadChats();
+    };
+
+    const handleGroupDissolved = (payload) => {
+      markGroupDissolved(payload);
     };
 
     onConversationUpdated(refreshChats);
     onGroupCreated(refreshChats);
     onGroupInfoUpdated(refreshChats);
     onGroupMembersAdded(refreshChats);
-    onGroupMemberRemoved(refreshChats);
+    onGroupMemberRemoved(handleGroupMemberRemoved);
     onGroupLeft(refreshChats);
+    onGroupDissolved(handleGroupDissolved);
 
-    return () => { };
-  }, []);
+    return () => {
+      offConversationUpdated(refreshChats);
+      offGroupCreated(refreshChats);
+      offGroupInfoUpdated(refreshChats);
+      offGroupMembersAdded(refreshChats);
+      offGroupMemberRemoved(handleGroupMemberRemoved);
+      offGroupLeft(refreshChats);
+      offGroupDissolved(handleGroupDissolved);
+    };
+  }, [currentUserId]);
 
   useEffect(() => {
     if (tab === "friends" && friendSection === "requests") {
@@ -474,6 +626,7 @@ export default function ChatPage() {
             friendSection={friendSection}
             setHasNewFriendRequest={setHasNewFriendRequest}
             setUnreadMap={setUnreadMap}
+            onFriendRemoved={handleFriendRemoved}
           />
         ) : !selected ? (
           <div className="col-9 d-flex justify-content-center align-items-center bg-light">
@@ -492,6 +645,7 @@ export default function ChatPage() {
             selected={selected}
             setUnreadMap={setUnreadMap}
             loadChats={loadChats}
+            onGroupDissolved={markGroupDissolved}
           />
         ) : (
           <ChatBox
@@ -500,6 +654,7 @@ export default function ChatPage() {
             friendSection={friendSection}
             setHasNewFriendRequest={setHasNewFriendRequest}
             setUnreadMap={setUnreadMap}
+            onFriendRemoved={handleFriendRemoved}
           />
         )}
       </div>
