@@ -87,7 +87,7 @@ export const getConversations = async () => {
 // ==============================
 export const getOrCreatePrivateConversationAPI = async (friendId) => {
   try {
-    const res = await api.get(`/chat/private/${friendId}`);
+    const res = await api.post("/chat/init-1-1", { partnerId: friendId });
 
     return res.data;
   } catch (err) {

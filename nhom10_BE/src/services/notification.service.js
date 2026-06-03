@@ -1,5 +1,5 @@
-const Notification = require("../../models/notification");
-const { getIO } = require("../shared/utils/socket");
+const Notification = require("../models/notification");
+const { getIO } = require("../utils/socket");
 
 class NotificationService {
   async createNotification({

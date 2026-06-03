@@ -4,18 +4,18 @@ const logger = require('morgan');
 const cors = require('cors');
 
 // Middleware auth
-const { verifyToken } = require('./shared/middlewares/auth.middleware');
+const { verifyToken } = require('./middlewares/auth.middleware');
 
-// Routes modules
-const authRoutes = require('./modules/auth/auth.route');
-const chatRoutes = require('./modules/chat/chat.route');
-const userRoutes = require('./modules/user/user.route');
-const friendRoutes = require('./modules/friend/friend.route');
-const uploadRoutes = require('./modules/upload/upload.route');
-const aiRoutes = require('./modules/ai/ai.router');
-const adminRoutes = require('./modules/admin/admin.route');
+// Routes
+const authRoutes = require('./routes/auth.route');
+const chatRoutes = require('./routes/chat.route');
+const userRoutes = require('./routes/user.route');
+const friendRoutes = require('./routes/friend.route');
+const uploadRoutes = require('./routes/upload.route');
+const aiRoutes = require('./routes/ai.route');
+const adminRoutes = require('./routes/admin.route');
 // MongoDB connection
-//const connectMongoDB = require('./src/shared/configs/mongodb');
+// const connectMongoDB = require('./config/mongodb');
 
 const app = express();
 app.use(cors({

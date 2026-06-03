@@ -43,9 +43,7 @@ export const getAiSessionsAPI = async () => {
  */
 export const getAiMessagesAPI = async (sessionId) => {
     try {
-        console.log("🔍 Đang tải lịch sử tin nhắn cho sessionId:", sessionId);
         const response = await api.get(`/ai/messages/${sessionId}`);
-        console.log("✅ Lịch sử tin nhắn AI:", response.data);
         return response.data || response;
     } catch (error) {
         console.error("❌ Lỗi getAiMessagesAPI:", error);

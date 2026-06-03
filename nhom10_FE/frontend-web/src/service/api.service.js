@@ -14,16 +14,9 @@ api.interceptors.request.use(
   (config) => {
     let token = localStorage.getItem("token");
 
-    console.log("RAW TOKEN:", token);
-
     if (token && token !== "null" && token !== "undefined") {
       token = token.replace(/^"|"$/g, "").trim();
-
-      console.log("CLEAN TOKEN:", token);
-
       config.headers.Authorization = `Bearer ${token}`;
-    } else {
-      console.log("❌ NO TOKEN FOUND");
     }
 
     return config;
