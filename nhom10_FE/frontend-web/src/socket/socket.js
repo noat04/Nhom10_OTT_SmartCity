@@ -1,5 +1,5 @@
 import { io } from "socket.io-client";
-import { BACKEND_URL } from "../config/api.config";
+import { SOCKET_URL } from "../config/api.config";
 
 let socket = null;
 
@@ -17,7 +17,7 @@ export const connectSocket = (token) => {
     }
   }
 
-  socket = io(BACKEND_URL, {
+  socket = io(SOCKET_URL, {
     auth: { token },
     transports: ["websocket", "polling"],
   });

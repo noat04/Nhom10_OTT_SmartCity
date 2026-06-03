@@ -157,7 +157,9 @@ export default function Sidebar({
         className="col-3 bg-white p-2"
         style={{
           width: "320px",
-          height: "100%",
+          height: "100vh",
+          maxHeight: "100vh",
+          minHeight: 0,
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
@@ -369,10 +371,10 @@ export default function Sidebar({
 
           {/* ======================= TAB AI ======================= */}
           {tab === "ai" && (
-            <>
+            <div className="d-flex flex-column h-100" style={{ minHeight: 0 }}>
               <div className="text-muted small fw-bold mb-2 ps-2">HÔM NAY</div>
               <div
-                className="d-flex align-items-center p-2 border-bottom mb-2"
+                className="d-flex align-items-center p-2 border-bottom mb-2 flex-shrink-0"
                 style={{ cursor: "pointer", backgroundColor: selected?.isNew ? "#e0f2fe" : "white", borderRadius: "10px" }}
                 onClick={handleNewAiChat}
               >
@@ -384,7 +386,7 @@ export default function Sidebar({
                 </div>
                 <div className="flex-grow-1 fw-bold text-dark">Đoạn chat mới</div>
               </div>
-
+              <div style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 2 }}>
               {aiSessions.length === 0 ? (
                 <div className="p-3 text-muted text-center small">Chưa có lịch sử trò chuyện</div>
               ) : (
@@ -425,7 +427,8 @@ export default function Sidebar({
                   </div>
                 ))
               )}
-            </>
+              </div>
+            </div>
           )}
         </div>
       </div>
