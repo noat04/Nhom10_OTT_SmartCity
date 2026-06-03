@@ -1,8 +1,8 @@
-const BASE_URL = "http://localhost:3000/api";
+import { API_BASE_URL } from "../config/api.config";
 
 // --- LOGIN FLOW ---
 export const loginAPI = async (data) => {
-  const res = await fetch(`${BASE_URL}/auth/login`, {
+  const res = await fetch(`${API_BASE_URL}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data)
@@ -13,7 +13,7 @@ export const loginAPI = async (data) => {
 // --- REGISTER FLOW ---
 // Bước 1: Gửi OTP đến email đăng ký
 export const registerAPI = async (email) => {
-  const res = await fetch(`${BASE_URL}/auth/register/send-otp`, {
+  const res = await fetch(`${API_BASE_URL}/auth/register/send-otp`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email })
@@ -24,7 +24,7 @@ export const registerAPI = async (email) => {
 // --- VERIFY FLOW (Dùng chung cho cả 2) ---
 export const verifyOtpAPI = async (endpoint, data) => {
   try {
-    const res = await fetch(`${BASE_URL}${endpoint}`, {
+    const res = await fetch(`${API_BASE_URL}${endpoint}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data)
@@ -43,7 +43,7 @@ export const verifyOtpAPI = async (endpoint, data) => {
 
 // FORGOT PASSWORD
 export const forgotPasswordAPI = async (email) => {
-  const res = await fetch(`${BASE_URL}/auth/forgot-password`, {
+  const res = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email })
@@ -52,7 +52,7 @@ export const forgotPasswordAPI = async (email) => {
 };
 
 export const verifyResetOtpAPI = async (data) => {
-  const res = await fetch(`${BASE_URL}/auth/verify-reset-otp`, {
+  const res = await fetch(`${API_BASE_URL}/auth/verify-reset-otp`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data)
@@ -61,7 +61,7 @@ export const verifyResetOtpAPI = async (data) => {
 };
 
 export const resetPasswordAPI = async (data) => {
-  const res = await fetch(`${BASE_URL}/auth/reset-password`, {
+  const res = await fetch(`${API_BASE_URL}/auth/reset-password`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data)

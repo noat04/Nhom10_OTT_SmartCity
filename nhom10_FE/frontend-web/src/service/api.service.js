@@ -1,9 +1,9 @@
 // src/services/api.service.js
 import axios from 'axios';
+import { API_BASE_URL } from '../config/api.config';
 
 const api = axios.create({
-  // baseURL: process.env.REACT_APP_BACKEND_URL + '/api',
-  baseURL: 'http://localhost:3000/api',
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json'
   }
