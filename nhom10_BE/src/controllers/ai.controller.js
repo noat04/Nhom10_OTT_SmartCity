@@ -17,137 +17,18 @@ const INPUT_LIMITS = {
 
 // Giới hạn lịch sử hội thoại gửi lên API (để tiết kiệm token)
 const MAX_HISTORY_TURNS = 10; // Giữ tối đa 10 lượt (20 message: user + model)
-const AI_MODEL_CANDIDATES = [
-    process.env.GEMINI_MODEL,
-    "gemini-2.0-flash",
-    "gemini-1.5-flash",
-    "gemini-1.5-flash-latest",
-].filter(Boolean);
-
-const getRequestUserId = (req) => req.user?._id || req.user?.id;
-
-const saveAiMessageSafely = async (message) => {
-    try {
-        if (!message.sessionId) return;
-        await AiMessage.create(message);
-    } catch (error) {
-        console.error("Loi luu tin nhan AI:", error.message || error);
-    }
-};
-
-const buildSafeGeminiHistory = (messages = []) => {
-    const safeHistory = [];
-    let expectedRole = "user";
-
-    for (const msg of messages) {
-        if (!["user", "model"].includes(msg.role) || !msg.content) continue;
-
-        if (msg.role !== expectedRole) {
-            if (msg.role === "user") {
-                while (safeHistory.length && safeHistory[safeHistory.length - 1].role === "user") {
-                    safeHistory.pop();
-                }
-                expectedRole = "user";
-            } else {
-                continue;
-            }
-        }
-
-        safeHistory.push({
-            role: msg.role,
-            parts: [{ text: msg.content }],
-        });
-        expectedRole = msg.role === "user" ? "model" : "user";
-    }
-
-    if (safeHistory.length && safeHistory[safeHistory.length - 1].role === "user") {
-        safeHistory.pop();
-    }
-
-    return safeHistory.slice(-(MAX_HISTORY_TURNS * 2));
-};
-
-const askGeminiWithFallback = async (prompt, history) => {
-    let lastError;
-
-    for (const modelName of AI_MODEL_CANDIDATES) {
-        try {
-            const model = genAI.getGenerativeModel({
-                model: modelName,
-                systemInstruction: SYSTEM_PROMPT,
-                generationConfig: {
-                    maxOutputTokens: 1500,
-                    temperature: 0.3,
-                    topP: 0.8,
-                },
-            });
-
-            const chat = model.startChat({ history });
-            const result = await chat.sendMessage(prompt);
-            return result.response.text();
-        } catch (error) {
-            lastError = error;
-            console.error(`Loi Google AI API voi model ${modelName}:`, error.message || error);
-        }
-    }
-
-    throw lastError;
-};
-
-const buildLocalPublicServiceAnswer = (prompt = "") => {
-    const text = String(prompt).toLowerCase();
-
-    if (text.includes("thuế") || text.includes("thue") || text.includes("mã số thuế") || text.includes("ma so thue")) {
-        return [
-            "Hiện tại trợ lý AI bên ngoài đang tạm thời không phản hồi, mình trả lời theo dữ liệu hướng dẫn dự phòng.",
-            "",
-            "Với nội dung về thuế, bạn nên chuẩn bị trước các thông tin sau:",
-            "1. Loại thủ tục cần làm: đăng ký mã số thuế, kê khai thuế, nộp thuế, hoàn thuế hoặc tra cứu nghĩa vụ thuế.",
-            "2. Thông tin cá nhân/doanh nghiệp: CCCD/MST, họ tên hoặc tên doanh nghiệp, địa chỉ, số điện thoại, email.",
-            "3. Hồ sơ liên quan: giấy đăng ký kinh doanh nếu là doanh nghiệp/hộ kinh doanh, chứng từ nộp thuế, tờ khai hoặc giấy tờ phát sinh.",
-            "",
-            "Bạn có thể thực hiện trên Cổng thông tin Thuế điện tử hoặc Cổng Dịch vụ công Quốc gia. Nếu hồ sơ có tình huống đặc biệt, nên liên hệ Chi cục Thuế nơi quản lý để được xác nhận chính xác."
-        ].join("\n");
-    }
-
-    if (text.includes("cccd") || text.includes("căn cước") || text.includes("can cuoc")) {
-        return [
-            "Hiện tại trợ lý AI bên ngoài đang tạm thời không phản hồi, mình trả lời theo dữ liệu hướng dẫn dự phòng.",
-            "",
-            "Với thủ tục căn cước/CCCD, bạn thường cần:",
-            "1. Đăng nhập hoặc đặt lịch trên Cổng Dịch vụ công nếu địa phương hỗ trợ.",
-            "2. Chuẩn bị thông tin định danh cá nhân, giấy tờ chứng minh thay đổi thông tin nếu có.",
-            "3. Đến cơ quan công an có thẩm quyền để xác thực, chụp ảnh, lấy vân tay và hoàn tất hồ sơ.",
-            "",
-            "Bạn nên kiểm tra hướng dẫn mới nhất tại cơ quan công an địa phương hoặc Cổng Dịch vụ công Quốc gia."
-        ].join("\n");
-    }
-
-    if (text.includes("khai sinh") || text.includes("kết hôn") || text.includes("ket hon") || text.includes("hộ khẩu") || text.includes("ho khau")) {
-        return [
-            "Hiện tại trợ lý AI bên ngoài đang tạm thời không phản hồi, mình trả lời theo dữ liệu hướng dẫn dự phòng.",
-            "",
-            "Với nhóm thủ tục hộ tịch/cư trú, bạn nên chuẩn bị:",
-            "1. Giấy tờ tùy thân của người yêu cầu.",
-            "2. Giấy tờ chứng minh sự kiện hộ tịch/cư trú cần đăng ký.",
-            "3. Biểu mẫu theo yêu cầu của UBND cấp xã/phường hoặc cơ quan công an.",
-            "",
-            "Bạn nên tra cứu thủ tục cụ thể trên Cổng Dịch vụ công Quốc gia hoặc liên hệ UBND/cơ quan công an nơi cư trú."
-        ].join("\n");
-    }
-
-    return [
-        "Hiện tại trợ lý AI bên ngoài đang tạm thời không phản hồi, mình trả lời theo dữ liệu hướng dẫn dự phòng.",
-        "",
-        "Bạn đang hỏi về dịch vụ công/thủ tục hành chính. Để mình hỗ trợ chính xác hơn, bạn hãy cho biết:",
-        "1. Tên thủ tục cần làm.",
-        "2. Bạn làm cho cá nhân, hộ kinh doanh hay doanh nghiệp.",
-        "3. Tỉnh/thành phố hoặc cơ quan tiếp nhận hồ sơ.",
-        "4. Bạn muốn biết hồ sơ cần chuẩn bị, các bước thực hiện, lệ phí hay thời gian xử lý.",
-        "",
-        "Thông tin cuối cùng nên được xác minh tại Cổng Dịch vụ công Quốc gia hoặc cơ quan có thẩm quyền."
-    ].join("\n");
-};
+const MAX_AI_SESSIONS_PER_USER = 5;
+const AI_FALLBACK_TEXT = [
+    "Hiện tại trợ lý AI bên ngoài đang tạm thời không phản hồi, mình trả lời theo dữ liệu hướng dẫn dự phòng.",
+    "",
+    "Bạn đang hỏi về dịch vụ công/thủ tục hành chính. Để mình hỗ trợ chính xác hơn, bạn hãy cho biết:",
+    "1. Tên thủ tục cần làm.",
+    "2. Bạn làm cho cá nhân, hộ kinh doanh hay doanh nghiệp.",
+    "3. Tỉnh/thành phố hoặc cơ quan tiếp nhận hồ sơ.",
+    "4. Bạn muốn biết hồ sơ cần chuẩn bị, các bước thực hiện, lệ phí hay thời gian xử lý.",
+    "",
+    "Thông tin cuối cùng nên được xác minh tại Cổng Dịch vụ công Quốc gia hoặc cơ quan có thẩm quyền.",
+].join("\n");
 
 // Danh sách chủ đề bị chặn (rõ ràng ngoài phạm vi dịch vụ công)
 const OFF_TOPIC_PATTERNS = [
@@ -221,11 +102,7 @@ function validateUserInput(prompt) {
 // ================================================================
 exports.getAiSessions = async (req, res) => {
     try {
-        const userId = getRequestUserId(req);
-
-        if (!userId) {
-            return res.status(401).json({ success: false, message: "Chua dang nhap." });
-        }
+        const userId = req.user._id || req.user.id;
         const sessions = await AiSession.find({ userId }).sort({ updatedAt: -1 });
         return res.status(200).json({ success: true, data: sessions });
     } catch (error) {
@@ -239,19 +116,8 @@ exports.getAiSessions = async (req, res) => {
 // ================================================================
 exports.askAssistant = async (req, res) => {
     try {
-        if (!process.env.GEMINI_API_KEY) {
-            return res.status(503).json({
-                success: false,
-                message: "Chua cau hinh GEMINI_API_KEY tren server.",
-            });
-        }
-
         const { prompt, sessionId } = req.body;
-        const userId = getRequestUserId(req);
-
-        if (!userId) {
-            return res.status(401).json({ success: false, message: "Chua dang nhap." });
-        }
+        const userId = req.user._id || req.user.id;
 
         // --- BƯỚC 1: LỌC INPUT PHÍA SERVER (trước khi tốn bất kỳ chi phí nào) ---
         const validation = validateUserInput(prompt);
@@ -265,8 +131,19 @@ exports.askAssistant = async (req, res) => {
         let chatHistory = [];
         const isValidId = mongoose.Types.ObjectId.isValid(currentSessionId);
 
-        try {
         if (currentSessionId && isValidId) {
+            const currentSession = await AiSession.findOne({
+                _id: new mongoose.Types.ObjectId(currentSessionId),
+                userId,
+            });
+
+            if (!currentSession) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Không tìm thấy đoạn chat AI.",
+                });
+            }
+
             // Lấy lịch sử, chỉ giữ MAX_HISTORY_TURNS lượt gần nhất để tránh bloat context
             const oldMessages = await AiMessage.find({
                 sessionId: new mongoose.Types.ObjectId(currentSessionId),
@@ -275,8 +152,19 @@ exports.askAssistant = async (req, res) => {
                 .limit(MAX_HISTORY_TURNS * 2)    // *2 vì mỗi lượt có user + model
                 .then((msgs) => msgs.reverse()); // Đảo lại đúng thứ tự thời gian
 
-            chatHistory = buildSafeGeminiHistory(oldMessages);
+            chatHistory = oldMessages.map((msg) => ({
+                role: msg.role,
+                parts: [{ text: msg.content }],
+            }));
         } else {
+            const sessionCount = await AiSession.countDocuments({ userId });
+            if (sessionCount >= MAX_AI_SESSIONS_PER_USER) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Bạn chỉ có thể tạo tối đa ${MAX_AI_SESSIONS_PER_USER} đoạn chat AI. Hãy xóa đoạn chat cũ để tạo đoạn chat mới.`,
+                });
+            }
+
             // Tạo session mới
             const newSession = await AiSession.create({
                 userId,
@@ -285,24 +173,33 @@ exports.askAssistant = async (req, res) => {
             });
             currentSessionId = newSession._id;
         }
-        } catch (sessionError) {
-            currentSessionId = null;
-            chatHistory = [];
-            console.error("Loi tao/tai session AI, tiep tuc khong luu lich su:", sessionError.message || sessionError);
-        }
 
         // --- BƯỚC 3: LƯU TIN NHẮN NGƯỜI DÙNG ---
-        await saveAiMessageSafely({
+        await AiMessage.create({
             sessionId: currentSessionId,
             role: "user",
             content: cleanPrompt,
         });
 
+        // --- BƯỚC 4: GỌI GOOGLE AI VỚI CẤU HÌNH ĐẦY ĐỦ ---
+        const model = genAI.getGenerativeModel({
+            model: "gemini-2.5-flash",
+            systemInstruction: SYSTEM_PROMPT,   // System prompt gắn cố định mọi request
+            generationConfig: {
+                maxOutputTokens: 1500,          // Đủ cho câu trả lời thủ tục hành chính chi tiết (~700-900 từ)
+                temperature: 0.3,               // Ưu tiên độ chính xác, hạn chế sáng tạo tự do
+                topP: 0.8,                      // Hạn chế thêm độ ngẫu nhiên của output
+            },
+        });
+
+        const chat = model.startChat({ history: chatHistory });
+
         try {
-            const text = await askGeminiWithFallback(cleanPrompt, chatHistory);
+            const result = await chat.sendMessage(cleanPrompt);
+            const text = result.response.text();
 
             // --- BƯỚC 5: LƯU PHẢN HỒI AI ---
-            await saveAiMessageSafely({
+            await AiMessage.create({
                 sessionId: currentSessionId,
                 role: "model",
                 content: text,
@@ -314,19 +211,17 @@ exports.askAssistant = async (req, res) => {
                 sessionId: currentSessionId,
             });
         } catch (aiError) {
-            console.error("Loi Google AI API, dung cau tra loi du phong:", aiError.message || aiError);
+            console.error("❌ Lỗi Google AI API:", aiError);
 
-            const fallbackText = buildLocalPublicServiceAnswer(cleanPrompt);
-
-            await saveAiMessageSafely({
+            await AiMessage.create({
                 sessionId: currentSessionId,
                 role: "model",
-                content: fallbackText,
+                content: AI_FALLBACK_TEXT,
             });
 
             return res.status(200).json({
                 success: true,
-                data: fallbackText,
+                data: AI_FALLBACK_TEXT,
                 sessionId: currentSessionId,
                 fallback: true,
             });

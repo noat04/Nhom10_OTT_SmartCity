@@ -2,8 +2,8 @@ import { FontAwesome5, Ionicons } from '@expo/vector-icons';
 import { useHeaderHeight } from '@react-navigation/elements'; // 👉 Lấy chiều cao chuẩn của Header
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'; // 👉 Thêm Stack và useRouter
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ActivityIndicator, FlatList, Keyboard, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { askPublicServiceAI, getAiMessagesAPI } from '../../service/ai.api';
 
 export default function AiChatScreen() {
@@ -15,10 +15,10 @@ export default function AiChatScreen() {
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [keyboardHeight, setKeyboardHeight] = useState(0);
 
     const flatListRef = useRef();
     const insets = useSafeAreaInsets();
-
     // Tính toán chiều cao của Header động để truyền cho KeyboardAvoidingView
     const headerHeight = useHeaderHeight();
 
@@ -52,6 +52,24 @@ export default function AiChatScreen() {
         loadHistory();
     }, [id]);
 
+    useEffect(() => {
+        const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+        const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+        const showSub = Keyboard.addListener(showEvent, (event) => {
+            setKeyboardHeight(event.endCoordinates?.height || 0);
+            setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 80);
+        });
+        const hideSub = Keyboard.addListener(hideEvent, () => {
+            setKeyboardHeight(0);
+        });
+
+        return () => {
+            showSub.remove();
+            hideSub.remove();
+        };
+    }, []);
+
     const handleSend = async () => {
         if (!input.trim() || isLoading) return;
 
@@ -84,13 +102,14 @@ export default function AiChatScreen() {
     };
 
     return (
+        <SafeAreaView style={styles.container} edges={['bottom']}>
         <KeyboardAvoidingView
-            style={styles.container}
+            style={styles.keyboardView}
             // 👉 SỬA BEHAVIOR: iOS luôn cần 'padding', Android thường hoạt động tốt với 'height' hoặc để undefined
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
 
             // 👉 SỬA OFFSET: Trên Android đôi khi cộng thêm headerHeight sẽ bị lệch, nên set cứng hoặc để 0
-            keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 90}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}
         >
             <Stack.Screen
                 options={{
@@ -114,7 +133,8 @@ export default function AiChatScreen() {
                 ref={flatListRef}
                 data={messages}
                 keyExtractor={item => item._id}
-                contentContainerStyle={{ padding: 15, paddingBottom: 20 }}
+                contentContainerStyle={styles.messageList}
+                keyboardShouldPersistTaps="handled"
                 // Tự động cuộn xuống cuối khi có tin nhắn mới hoặc khi bàn phím mở lên
                 onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
                 onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
@@ -144,8 +164,15 @@ export default function AiChatScreen() {
                 </View>
             )}
 
-            {/* 👉 VÙNG NHẬP LIỆU: Chỉ cộng insets.bottom cho iOS (do có thanh Home Indicator), Android set cứng 10 */}
-            <View style={[styles.inputContainer, { paddingBottom: Platform.OS === 'ios' ? Math.max(insets.bottom, 10) : 10 }]}>
+            <View
+                style={[
+                    styles.inputContainer,
+                    {
+                        paddingBottom: Math.max(insets.bottom, 10),
+                        marginBottom: Platform.OS === 'android' && keyboardHeight > 0 ? keyboardHeight : 0,
+                    },
+                ]}
+            >
                 <TextInput
                     style={styles.input}
                     placeholder="Hỏi trợ lý ảo..."
@@ -162,11 +189,14 @@ export default function AiChatScreen() {
                 </TouchableOpacity>
             </View>
         </KeyboardAvoidingView>
+        </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#f0f2f5' },
+    keyboardView: { flex: 1 },
+    messageList: { padding: 15, paddingBottom: 20 },
     msgWrapper: { flexDirection: 'row', marginBottom: 15, alignItems: 'flex-end' },
     msgLeft: { justifyContent: 'flex-start', paddingRight: 50 },
     msgRight: { justifyContent: 'flex-end', paddingLeft: 50 },

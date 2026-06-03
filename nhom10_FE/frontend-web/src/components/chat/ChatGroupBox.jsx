@@ -79,7 +79,7 @@ const AttachmentInfo = ({ message }) => (
 
 const renderTextWithLinks = (text = "") => {
   const value = String(text);
-  const urlRegex = /(https?:\/\/[^\s]+|\/join-group\/[A-Za-z0-9_-]+)/g;
+  const urlRegex = /(https?:\/\/[^\s]+|app:\/\/\/group\/join\/[A-Za-z0-9_-]+|\/group\/join\/[A-Za-z0-9_-]+|\/join-group\/[A-Za-z0-9_-]+)/g;
   const parts = value.split(urlRegex);
 
   return parts.map((part, index) => {
@@ -87,10 +87,11 @@ const renderTextWithLinks = (text = "") => {
 
     const trailing = part.match(/[.,!?)]$/)?.[0] || "";
     const cleanUrl = trailing ? part.slice(0, -1) : part;
-    const href = cleanUrl.startsWith("/") ? cleanUrl : cleanUrl;
+    const inviteMatch = cleanUrl.match(/(?:^|\/)(?:group\/join|join-group)\/([A-Za-z0-9_-]+)/);
+    const href = inviteMatch ? `/join-group/${inviteMatch[1]}` : cleanUrl;
     const sameOrigin =
-      cleanUrl.startsWith("/") ||
-      (cleanUrl.startsWith(window.location.origin) && cleanUrl.includes("/join-group/"));
+      href.startsWith("/") ||
+      (href.startsWith(window.location.origin) && href.includes("/join-group/"));
 
     return (
       <React.Fragment key={`${cleanUrl}-${index}`}>

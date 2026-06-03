@@ -177,6 +177,7 @@ export default function ChatScreen() {
             : item?.canSendMessage !== false && !partnerUnavailable,
         partnerDeleted: partnerUnavailable,
         isActive: item?.type === "group" ? item?.isActive !== false : true,
+        isGroup,
         msg: getPreviewText(latestMessage),
         unreadCount: getUnreadCount(latestMessage),
         isTyping: false,
@@ -740,9 +741,16 @@ export default function ChatScreen() {
         <Image source={{ uri: item.img }} style={styles.avatar} />
 
         <View style={{ flex: 1 }}>
-          <Text style={[styles.name, item.unreadCount > 0 && styles.unreadName]} numberOfLines={1}>
-            {item.name}
-          </Text>
+          <View style={styles.nameRow}>
+            <Text style={[styles.name, item.unreadCount > 0 && styles.unreadName]} numberOfLines={1}>
+              {item.name}
+            </Text>
+            {item.isGroup && (
+              <View style={styles.groupBadge}>
+                <Text style={styles.groupBadgeText}>Nhóm</Text>
+              </View>
+            )}
+          </View>
           <Text
             style={[
               styles.msg,
@@ -889,10 +897,27 @@ const styles = StyleSheet.create({
     borderRadius: 26,
     marginRight: 12,
   },
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   name: {
     color: "#111827",
     fontWeight: "700",
     fontSize: 16,
+    flexShrink: 1,
+  },
+  groupBadge: {
+    backgroundColor: "#e0f2fe",
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  groupBadgeText: {
+    color: "#0369a1",
+    fontSize: 11,
+    fontWeight: "700",
   },
   msg: {
     color: "#6b7280",
