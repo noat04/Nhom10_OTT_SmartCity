@@ -10,13 +10,28 @@ const onlineUsers = new Map();
 let io;
 
 const getOnlineUserIds = () => Array.from(onlineUsers.keys());
+const socketCorsOrigins = (
+    process.env.SOCKET_CORS_ORIGINS ||
+    process.env.CLIENT_URL ||
+    "http://localhost:5173,https://nhom10-ott-smartcity-ha37.onrender.com"
+)
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
 
 module.exports = {
     init: (server) => {
         io = socketIo(server, {
             cors: {
-                origin: "http://localhost:5173",
-                methods: ["GET", "POST"]
+                origin: (origin, callback) => {
+                    if (!origin || socketCorsOrigins.includes("*") || socketCorsOrigins.includes(origin)) {
+                        return callback(null, true);
+                    }
+
+                    return callback(new Error("Not allowed by Socket.IO CORS"));
+                },
+                methods: ["GET", "POST"],
+                credentials: true
             }
         });
 

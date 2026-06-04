@@ -1,5 +1,5 @@
 import { io } from "socket.io-client";
-import { API_ORIGIN } from "../service/network.config";
+import { SOCKET_ORIGIN } from "../service/network.config";
 
 let socket = null;
 
@@ -9,7 +9,7 @@ let socket = null;
 export const connectSocket = (token) => {
   if (socket) return socket;
 
-  socket = io(API_ORIGIN, {
+  socket = io(SOCKET_ORIGIN, {
     auth: { token },
     transports: ["websocket", "polling"],
   });
