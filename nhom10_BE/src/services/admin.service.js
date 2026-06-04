@@ -1,4 +1,3 @@
-const bcrypt = require('bcrypt');
 const mongoose = require('mongoose');
 
 const User = require('../models/user');
@@ -9,6 +8,38 @@ const OTP = require('../models/otp.model');
 const LoginLog = require('../models/loginLog');
 
 const toId = (id) => mongoose.Types.ObjectId.isValid(id) ? new mongoose.Types.ObjectId(id) : null;
+const getMemberUserId = (member) => {
+  const user = member?.user || member;
+  return user?._id || user?.id || user;
+};
+const getSocketIO = () => {
+  try {
+    return require('../utils/socket').getIO();
+  } catch (error) {
+    return null;
+  }
+};
+const emitGroupRealtime = (event, group, payload = {}) => {
+  const io = getSocketIO();
+  if (!io || !group) return;
+
+  const groupId = group._id?.toString();
+  const data = { conversationId: groupId, group, ...payload };
+
+  if (groupId) io.to(groupId).emit(event, data);
+
+  (group.members || []).forEach((member) => {
+    const userId = getMemberUserId(member);
+    if (!userId) return;
+    io.to(userId.toString()).emit(event, data);
+    io.to(userId.toString()).emit('conversation_updated', data);
+  });
+};
+const requiredReason = (reason, action) => {
+  const value = String(reason || '').trim();
+  if (!value) throw new Error(`Vui long nhap ly do ${action}`);
+  return value;
+};
 const startOfDay = (date = new Date()) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
 const addDays = (date, days) => {
   const next = new Date(date);
@@ -74,15 +105,15 @@ class AdminService {
       onlineUsers,
       messagesToday,
       totalGroups,
-      violationReports: 0,
       newUsersToday,
       userGrowth,
       messageTraffic
     };
   }
 
-  async listUsers(q = '') {
+  async listUsers(q = '', activity = '') {
     const keyword = q.trim();
+    const since = addDays(new Date(), -30);
     const query = keyword ? {
       $or: [
         { username: new RegExp(keyword, 'i') },
@@ -91,6 +122,33 @@ class AdminService {
         { phone: new RegExp(keyword, 'i') }
       ]
     } : {};
+
+    if (activity === 'recent') {
+      const loginRows = await LoginLog.aggregate([
+        { $match: { status: 'success', createdAt: { $gte: since } } },
+        { $sort: { createdAt: -1 } },
+        { $group: { _id: '$userId', lastLoginAt: { $first: '$createdAt' }, loginCount: { $sum: 1 } } },
+        { $sort: { loginCount: -1, lastLoginAt: -1 } },
+        { $limit: 20 }
+      ]);
+
+      const userIds = loginRows.map((row) => row._id).filter(Boolean);
+      const users = await User.find({ ...query, _id: { $in: userIds } });
+      const userMap = new Map(users.map((user) => [user._id.toString(), user]));
+
+      return loginRows
+        .map((row) => {
+          const user = userMap.get(row._id?.toString());
+          if (!user) return null;
+          return { ...publicUser(user), lastLoginAt: row.lastLoginAt, loginCount30Days: row.loginCount };
+        })
+        .filter(Boolean);
+    }
+
+    if (activity === 'inactive') {
+      const activeIds = await LoginLog.distinct('userId', { status: 'success', createdAt: { $gte: since } });
+      query._id = { $nin: activeIds };
+    }
 
     const users = await User.find(query).sort({ createdAt: -1 }).limit(200);
     return users.map(publicUser);
@@ -111,21 +169,11 @@ class AdminService {
     return { profile: publicUser(user), friends, groups, loginDevices, activity };
   }
 
-  async updateUser(id, data) {
-    const allow = ['username', 'email', 'phone', 'fullName', 'bio', 'role', 'status', 'avatar', 'coverImage'];
-    const update = {};
-    allow.forEach((key) => {
-      if (Object.prototype.hasOwnProperty.call(data, key)) update[key] = data[key];
-    });
-
-    const user = await User.findByIdAndUpdate(id, update, { new: true, runValidators: true });
-    return publicUser(user);
-  }
-
   async lockUser(id, reason) {
+    const lockReason = requiredReason(reason, 'khoa nguoi dung');
     await User.findByIdAndUpdate(id, {
       isLocked: true,
-      lockReason: reason || 'Locked by admin',
+      lockReason,
       lockedAt: new Date(),
       currentToken: null,
       refreshToken: '',
@@ -154,13 +202,6 @@ class AdminService {
     return true;
   }
 
-  async resetPassword(id, newPassword) {
-    if (!newPassword || newPassword.length < 6) throw new Error('Mat khau moi toi thieu 6 ky tu');
-    const password = await bcrypt.hash(newPassword, 10);
-    await User.findByIdAndUpdate(id, { password, currentToken: null, refreshToken: '' });
-    return true;
-  }
-
   async authManagement() {
     const [loginLogs, otpList, tokenUsers] = await Promise.all([
       LoginLog.find().populate('userId', 'username fullName email status').sort({ createdAt: -1 }).limit(200),
@@ -173,16 +214,13 @@ class AdminService {
   async revokeSession(userId) {
     await User.findByIdAndUpdate(userId, { currentToken: null, refreshToken: '', status: 'offline', lastSeen: new Date() });
     await LoginLog.create({ userId, status: 'revoked' });
-    return true;
-  }
-
-  async friends(status) {
-    const query = status ? { status } : {};
-    return Friend.find(query).populate('userId', 'username fullName email avatar status').populate('friendId', 'username fullName email avatar status').sort({ updatedAt: -1 }).limit(300);
-  }
-
-  async deleteFriendRequest(id) {
-    await Friend.findByIdAndDelete(id);
+    const io = getSocketIO();
+    if (io) {
+      io.to(userId.toString()).emit('force_logout', {
+        reason: 'SESSION_REVOKED',
+        message: 'Phien dang nhap da bi thu hoi'
+      });
+    }
     return true;
   }
 
@@ -237,8 +275,21 @@ class AdminService {
     return { daily, monthly, byUser };
   }
 
-  async groups() {
-    return Conversation.find({ type: 'group' }).populate('createdBy', 'username fullName email').populate('members.user', 'username fullName email avatar status').sort({ updatedAt: -1 }).limit(200);
+  async groups(messageActivity = '') {
+    const since = addDays(new Date(), -30);
+    const query = { type: 'group' };
+
+    if (messageActivity === 'active') {
+      const activeGroupIds = await Message.distinct('conversationId', { createdAt: { $gte: since } });
+      query._id = { $in: activeGroupIds };
+    }
+
+    if (messageActivity === 'inactive') {
+      const activeGroupIds = await Message.distinct('conversationId', { createdAt: { $gte: since } });
+      query._id = { $nin: activeGroupIds };
+    }
+
+    return Conversation.find(query).populate('createdBy', 'username fullName email').populate('members.user', 'username fullName email avatar status').sort({ updatedAt: -1 }).limit(200);
   }
 
   async groupDetail(id) {
@@ -248,12 +299,56 @@ class AdminService {
   }
 
   async lockGroup(id, reason) {
-    await Conversation.findByIdAndUpdate(id, { isActive: false, 'settings.onlyAdminCanSend': true, adminLockReason: reason || 'Locked by admin' });
+    const lockReason = requiredReason(reason, 'khoa nhom chat');
+    const group = await Conversation.findByIdAndUpdate(id, {
+      isActive: false,
+      'settings.onlyAdminCanSend': true,
+      adminLockReason: lockReason,
+      adminLockedAt: new Date()
+    }, { new: true }).populate('createdBy', 'username fullName email').populate('members.user', 'username fullName email avatar status');
+    emitGroupRealtime('group_locked', group, { reason: lockReason });
     return true;
   }
 
-  async deleteGroup(id) {
-    await Conversation.findByIdAndUpdate(id, { isActive: false, members: [] });
+  async unlockGroup(id) {
+    const group = await Conversation.findByIdAndUpdate(id, {
+      isActive: true,
+      'settings.onlyAdminCanSend': false,
+      adminLockReason: '',
+      adminLockedAt: null
+    }, { new: true }).populate('createdBy', 'username fullName email').populate('members.user', 'username fullName email avatar status');
+    emitGroupRealtime('group_unlocked', group);
+    return true;
+  }
+
+  async dissolveGroup(id, reason) {
+    const dissolveReason = requiredReason(reason, 'giai tan nhom chat');
+    const groupBefore = await Conversation.findById(id).populate('createdBy', 'username fullName email').populate('members.user', 'username fullName email avatar status');
+    const group = await Conversation.findByIdAndUpdate(id, {
+      isActive: false,
+      members: [],
+      adminDissolveReason: dissolveReason,
+      adminDissolvedAt: new Date()
+    }, { new: true }).populate('createdBy', 'username fullName email').populate('members.user', 'username fullName email avatar status');
+    emitGroupRealtime('group_dissolved', { ...(group?.toObject?.() || group || {}), members: groupBefore?.members || [] }, { reason: dissolveReason });
+    return true;
+  }
+
+  async deleteGroup(id, reason) {
+    const groupId = toId(id);
+    if (!groupId) throw new Error('Group id khong hop le');
+
+    const deleteReason = requiredReason(reason, 'xoa nhom chat');
+    const groupBefore = await Conversation.findById(groupId).populate('createdBy', 'username fullName email').populate('members.user', 'username fullName email avatar status');
+    await Conversation.findByIdAndUpdate(groupId, {
+      isActive: false,
+      members: [],
+      adminDeletedReason: deleteReason,
+      adminDeletedAt: new Date()
+    });
+    await Message.deleteMany({ conversationId: groupId });
+    await Conversation.findByIdAndDelete(groupId);
+    emitGroupRealtime('group_deleted', groupBefore, { reason: deleteReason });
     return true;
   }
 

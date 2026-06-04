@@ -41,7 +41,7 @@ class AuthService {
         const existEmail = await User.findOne({ email });
 
         // 🔥 FIX: nếu user tồn tại nhưng đang bị lock → reset
-        if (existEmail) {
+        if (existEmail && !existEmail.isDeleted) {
             existEmail.otpAttempts = 0;
             existEmail.otpBlockedUntil = null;
             await existEmail.save();
@@ -73,7 +73,12 @@ class AuthService {
         if (record.expiresAt < new Date()) throw new Error("OTP hết hạn");
 
         const existEmail = await User.findOne({ email });
-        if (existEmail) throw new Error("Email đã tồn tại");
+        if (existEmail && !existEmail.isDeleted) throw new Error("Email đã tồn tại");
+        if (existEmail?.isDeleted) await User.findByIdAndDelete(existEmail._id);
+
+        const existUsername = await User.findOne({ username });
+        if (existUsername && !existUsername.isDeleted) throw new Error("Username đã tồn tại");
+        if (existUsername?.isDeleted) await User.findByIdAndDelete(existUsername._id);
 
         const hashedPassword = await bcrypt.hash(password, 10);
 

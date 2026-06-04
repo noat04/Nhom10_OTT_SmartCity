@@ -8,13 +8,10 @@ module.exports = {
     try { ok(res, await adminService.dashboard()); } catch (error) { fail(res, error); }
   },
   listUsers: async (req, res) => {
-    try { ok(res, await adminService.listUsers(req.query.q || '')); } catch (error) { fail(res, error); }
+    try { ok(res, await adminService.listUsers(req.query.q || '', req.query.activity || '')); } catch (error) { fail(res, error); }
   },
   userDetail: async (req, res) => {
     try { ok(res, await adminService.userDetail(req.params.id)); } catch (error) { fail(res, error); }
-  },
-  updateUser: async (req, res) => {
-    try { ok(res, await adminService.updateUser(req.params.id, req.body)); } catch (error) { fail(res, error); }
   },
   lockUser: async (req, res) => {
     try { ok(res, await adminService.lockUser(req.params.id, req.body.reason)); } catch (error) { fail(res, error); }
@@ -25,20 +22,11 @@ module.exports = {
   deleteUser: async (req, res) => {
     try { ok(res, await adminService.deleteUser(req.params.id)); } catch (error) { fail(res, error); }
   },
-  resetPassword: async (req, res) => {
-    try { ok(res, await adminService.resetPassword(req.params.id, req.body.newPassword)); } catch (error) { fail(res, error); }
-  },
   authManagement: async (req, res) => {
     try { ok(res, await adminService.authManagement()); } catch (error) { fail(res, error); }
   },
   revokeSession: async (req, res) => {
     try { ok(res, await adminService.revokeSession(req.params.userId)); } catch (error) { fail(res, error); }
-  },
-  friends: async (req, res) => {
-    try { ok(res, await adminService.friends(req.query.status)); } catch (error) { fail(res, error); }
-  },
-  deleteFriendRequest: async (req, res) => {
-    try { ok(res, await adminService.deleteFriendRequest(req.params.id)); } catch (error) { fail(res, error); }
   },
   messages: async (req, res) => {
     try { ok(res, await adminService.messages()); } catch (error) { fail(res, error); }
@@ -47,7 +35,7 @@ module.exports = {
     try { ok(res, await adminService.messageStats()); } catch (error) { fail(res, error); }
   },
   groups: async (req, res) => {
-    try { ok(res, await adminService.groups()); } catch (error) { fail(res, error); }
+    try { ok(res, await adminService.groups(req.query.messageActivity || '')); } catch (error) { fail(res, error); }
   },
   groupDetail: async (req, res) => {
     try { ok(res, await adminService.groupDetail(req.params.id)); } catch (error) { fail(res, error); }
@@ -55,11 +43,14 @@ module.exports = {
   lockGroup: async (req, res) => {
     try { ok(res, await adminService.lockGroup(req.params.id, req.body.reason)); } catch (error) { fail(res, error); }
   },
-  deleteGroup: async (req, res) => {
-    try { ok(res, await adminService.deleteGroup(req.params.id)); } catch (error) { fail(res, error); }
+  unlockGroup: async (req, res) => {
+    try { ok(res, await adminService.unlockGroup(req.params.id)); } catch (error) { fail(res, error); }
   },
-  reports: async (req, res) => {
-    ok(res, { reports: [], note: 'Project hien tai chua co model bao cao vi pham.' });
+  dissolveGroup: async (req, res) => {
+    try { ok(res, await adminService.dissolveGroup(req.params.id, req.body.reason)); } catch (error) { fail(res, error); }
+  },
+  deleteGroup: async (req, res) => {
+    try { ok(res, await adminService.deleteGroup(req.params.id, req.body.reason)); } catch (error) { fail(res, error); }
   },
   statistics: async (req, res) => {
     try { ok(res, await adminService.statistics()); } catch (error) { fail(res, error); }

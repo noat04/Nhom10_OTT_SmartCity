@@ -200,6 +200,16 @@ export const offGroupDissolved = (callback) => {
   socket.off("group_dissolved", callback);
 };
 
+export const onGroupDeleted = (callback) => {
+  if (!socket) return;
+  socket.on("group_deleted", callback);
+};
+
+export const offGroupDeleted = (callback) => {
+  if (!socket) return;
+  socket.off("group_deleted", callback);
+};
+
 export const onGroupAdminChanged = (callback) => {
   if (!socket) return;
   socket.on("group_admin_changed", callback);

@@ -10,7 +10,7 @@ export const AuthProvider = ({ children }) => {
     try {
       const savedUser = localStorage.getItem("user");
       return savedUser ? JSON.parse(savedUser) : null;
-    } catch (error) {
+    } catch {
       return null;
     }
   });
@@ -27,6 +27,7 @@ export const AuthProvider = ({ children }) => {
 
     // Tắt listener cũ trước khi bật cái mới (chống lỗi lặp sự kiện khi login đi login lại)
     socket.off("user_updated");
+    socket.off("force_logout");
 
     // Lắng nghe cập nhật thông tin User
     socket.on("user_updated", (data) => {
@@ -36,6 +37,11 @@ export const AuthProvider = ({ children }) => {
         return data.user;
       });
       localStorage.setItem("user", JSON.stringify(data.user));
+    });
+
+    socket.on("force_logout", () => {
+      logout();
+      window.location.href = "/login";
     });
   };
 
@@ -81,6 +87,7 @@ export const AuthProvider = ({ children }) => {
       const socket = getSocket();
       if (socket) {
         socket.off("user_updated");
+        socket.off("force_logout");
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -132,6 +139,7 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {

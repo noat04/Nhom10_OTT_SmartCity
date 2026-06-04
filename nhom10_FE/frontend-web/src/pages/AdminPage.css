@@ -127,9 +127,14 @@
 
 .admin-toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto auto;
+  grid-template-columns: minmax(220px, 1fr) auto auto auto auto;
   gap: 8px;
   margin-bottom: 12px;
+}
+
+.admin-group-toolbar {
+  grid-template-columns: auto auto auto;
+  justify-content: start;
 }
 
 .admin-input,

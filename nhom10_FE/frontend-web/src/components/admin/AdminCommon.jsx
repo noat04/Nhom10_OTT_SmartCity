@@ -1,11 +1,10 @@
 export const tabs = [
-  ["dashboard", "Tổng quan"],
-  ["users", "Người dùng"],
-  ["auth", "Xác thực"],
-  ["friends", "Bạn bè"],
-  ["messages", "Tin nhắn"],
-  ["groups", "Nhóm chat"],
-  ["reports", "Báo cáo"]
+  ["dashboard", "Tong quan"],
+  ["users", "Nguoi dung"],
+  ["auth", "Xac thuc"],
+  ["messages", "Tin nhan"],
+  ["groups", "Nhom chat"],
+  ["statistics", "Thong ke"]
 ];
 
 export const formatDate = (value) => value ? new Date(value).toLocaleString("vi-VN") : "-";
@@ -122,7 +121,6 @@ export function UserDetail({ detail, onClose }) {
       <div className="admin-detail">
         <p><b>Họ tên:</b> {userName(detail.profile)}</p>
         <p><b>Email:</b> {detail.profile?.email}</p>
-        <p><b>Bạn bè:</b> {detail.friends?.length || 0}</p>
         <p><b>Nhóm tham gia:</b> {detail.groups?.length || 0}</p>
         <p><b>Thiết bị đăng nhập:</b> {detail.loginDevices?.length || 0}</p>
         <p><b>Hoạt động gần đây:</b> {detail.activity?.length || 0}</p>

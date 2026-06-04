@@ -68,7 +68,22 @@ const conversationSchema = new mongoose.Schema({
     isActive: {
         type: Boolean,
         default: true
-    }
+    },
+    adminLockReason: {
+        type: String,
+        default: ""
+    },
+    adminDissolveReason: {
+        type: String,
+        default: ""
+    },
+    adminDeletedReason: {
+        type: String,
+        default: ""
+    },
+    adminLockedAt: Date,
+    adminDissolvedAt: Date,
+    adminDeletedAt: Date
 }, {
     timestamps: true
 });

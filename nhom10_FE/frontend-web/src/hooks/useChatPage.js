@@ -26,6 +26,8 @@ import {
   offGroupLeft,
   onGroupDissolved,
   offGroupDissolved,
+  onGroupDeleted,
+  offGroupDeleted,
 } from "../socket/socket";
 export default function useChatPage() {
   const [contacts, setContacts] = useState([]);
@@ -540,6 +542,10 @@ export default function useChatPage() {
       markGroupDissolved(payload);
     };
 
+    const handleGroupDeleted = (payload) => {
+      removeGroupLocally(getConversationId(payload));
+    };
+
     onConversationUpdated(refreshChats);
     onGroupCreated(refreshChats);
     onGroupInfoUpdated(refreshChats);
@@ -547,6 +553,7 @@ export default function useChatPage() {
     onGroupMemberRemoved(handleGroupMemberRemoved);
     onGroupLeft(refreshChats);
     onGroupDissolved(handleGroupDissolved);
+    onGroupDeleted(handleGroupDeleted);
 
     return () => {
       offConversationUpdated(refreshChats);
@@ -556,6 +563,7 @@ export default function useChatPage() {
       offGroupMemberRemoved(handleGroupMemberRemoved);
       offGroupLeft(refreshChats);
       offGroupDissolved(handleGroupDissolved);
+      offGroupDeleted(handleGroupDeleted);
     };
   }, [currentUserId]);
 

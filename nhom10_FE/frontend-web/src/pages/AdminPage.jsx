@@ -2,26 +2,23 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import {
-  deleteAdminFriend,
   deleteAdminGroup,
   deleteAdminUser,
+  dissolveAdminGroup,
   getAdminAuth,
   getAdminDashboard,
-  getAdminFriends,
   getAdminGroupDetail,
   getAdminGroups,
   getAdminMessageStats,
   getAdminMessages,
-  getAdminReports,
   getAdminStatistics,
   getAdminUserDetail,
   getAdminUsers,
   lockAdminGroup,
   lockAdminUser,
-  resetAdminUserPassword,
   revokeAdminSession,
-  unlockAdminUser,
-  updateAdminUser
+  unlockAdminGroup,
+  unlockAdminUser
 } from "../api/adminApi";
 import "./AdminPage.css";
 
@@ -41,6 +38,20 @@ import {
   UserDetail,
   userName,
 } from "../components/admin/AdminCommon";
+
+const requireReason = (label) => {
+  const reason = prompt(label);
+  if (reason === null) return null;
+
+  const trimmed = reason.trim();
+  if (!trimmed) {
+    alert("Vui lòng nhập lý do trước khi thực hiện.");
+    return null;
+  }
+
+  return trimmed;
+};
+
 export default function AdminPage() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -49,8 +60,11 @@ export default function AdminPage() {
   const [error, setError] = useState("");
   const [data, setData] = useState({});
   const [query, setQuery] = useState("");
+  const [userActivityFilter, setUserActivityFilter] = useState("");
+  const [groupMessageFilter, setGroupMessageFilter] = useState("");
   const [selected, setSelected] = useState(null);
   const [messageLimit, setMessageLimit] = useState(20);
+  const [loginLimit, setLoginLimit] = useState(50);
 
   const isAdmin = user?.role === "admin" || user?.isAdmin;
 
@@ -63,21 +77,21 @@ export default function AdminPage() {
   const load = async () => {
     setLoading(true);
     setError("");
-    setData(tab === "users" || tab === "friends" || tab === "groups" ? [] : {});
+    setData(tab === "users" || tab === "groups" ? [] : {});
     if (tab === "messages") setMessageLimit(20);
+    if (tab === "auth") setLoginLimit(50);
     try {
       if (tab === "dashboard") setData((await getAdminDashboard()).data);
-      if (tab === "users") setData((await getAdminUsers(query)).data);
+      if (tab === "users") setData((await getAdminUsers(query, userActivityFilter)).data);
       if (tab === "auth") setData((await getAdminAuth()).data);
-      if (tab === "friends") setData((await getAdminFriends()).data);
       if (tab === "messages") {
         const [messages, stats] = await Promise.all([getAdminMessages(), getAdminMessageStats()]);
         setData({ messages: messages.data, stats: stats.data });
       }
-      if (tab === "groups") setData((await getAdminGroups()).data);
-      if (tab === "reports") {
-        const [reports, statistics] = await Promise.all([getAdminReports(), getAdminStatistics()]);
-        setData({ reports: reports.data, statistics: statistics.data });
+      if (tab === "groups") setData((await getAdminGroups(groupMessageFilter)).data);
+      if (tab === "statistics") {
+        const statistics = await getAdminStatistics();
+        setData({ statistics: statistics.data });
       }
     } catch (err) {
       setError(err.response?.data?.message || err.message || "Không tải được dữ liệu admin");
@@ -106,7 +120,6 @@ export default function AdminPage() {
           ["Đang online", data.onlineUsers],
           ["Tin nhắn hôm nay", data.messagesToday],
           ["Tổng nhóm chat", data.totalGroups],
-          ["Báo cáo vi phạm", data.violationReports],
           ["Người dùng mới", data.newUsersToday]
         ].map(([label, value]) => (
           <div className="admin-card" key={label}>
@@ -133,12 +146,53 @@ export default function AdminPage() {
     setSelected(res.data);
   };
 
+  const loadUsersByActivity = async (activity) => {
+    setUserActivityFilter(activity);
+    setLoading(true);
+    setError("");
+    try {
+      setData((await getAdminUsers(query, activity)).data);
+    } catch (err) {
+      setError(err.response?.data?.message || err.message || "KhÃ´ng táº£i Ä‘Æ°á»£c dá»¯ liá»‡u admin");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const clearUserFilter = async () => {
+    setQuery("");
+    setUserActivityFilter("");
+    setLoading(true);
+    setError("");
+    try {
+      setData((await getAdminUsers("", "")).data);
+    } catch (err) {
+      setError(err.response?.data?.message || err.message || "KhÃ´ng táº£i Ä‘Æ°á»£c dá»¯ liá»‡u admin");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLockUser = async (id) => {
+    const reason = requireReason("Lý do khóa người dùng");
+    if (!reason) return;
+
+    await lockAdminUser(id, reason);
+    refresh();
+  };
+
   const renderUsers = () => (
     <section className="admin-panel">
       <div className="admin-toolbar">
-        <input className="admin-input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm theo tên, email, số điện thoại" />
-        <button className="admin-btn primary" onClick={refresh}>Tìm kiếm</button>
-        <button className="admin-btn" onClick={() => setQuery("")}>Xóa lọc</button>
+        <input className="admin-input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tim theo ten, email, so dien thoai" />
+        <button className="admin-btn primary" onClick={refresh}>Tim kiem</button>
+        <button className={`admin-btn ${userActivityFilter === "recent" ? "primary" : ""}`} onClick={() => loadUsersByActivity("recent")}>
+          Nguoi dung thuong xuyen
+        </button>
+        <button className={`admin-btn ${userActivityFilter === "inactive" ? "primary" : ""}`} onClick={() => loadUsersByActivity("inactive")}>
+          Khong dang nhap 30 ngay
+        </button>
+        <button className="admin-btn" onClick={clearUserFilter}>Xoa loc</button>
       </div>
       <Table headers={["Họ tên", "Email", "Trạng thái", "Vai trò", "Tạo lúc", "Chức năng"]}>
         {asArray(data).map((item) => (
@@ -150,13 +204,11 @@ export default function AdminPage() {
             <td>{formatDate(item.createdAt)}</td>
             <td className="admin-actions">
               <button className="admin-btn" onClick={() => viewUser(item.id)}>Chi tiết</button>
-              <button className="admin-btn" onClick={() => editUser(item)}>Cập nhật</button>
               {item.isLocked ? (
                 <button className="admin-btn primary" onClick={async () => { await unlockAdminUser(item.id); refresh(); }}>Mở khóa</button>
               ) : (
-                <button className="admin-btn warn" onClick={async () => { await lockAdminUser(item.id, prompt("Lý do khóa") || "Khóa bởi admin"); refresh(); }}>Khóa</button>
+                <button className="admin-btn warn" onClick={() => handleLockUser(item.id)}>Khóa</button>
               )}
-              <button className="admin-btn" onClick={async () => { const pw = prompt("Mật khẩu mới"); if (pw) await resetAdminUserPassword(item.id, pw); }}>Đặt lại MK</button>
               <button className="admin-btn danger" onClick={async () => { if (confirm("Xóa tài khoản này?")) { await deleteAdminUser(item.id); refresh(); } }}>Xóa</button>
             </td>
           </tr>
@@ -166,21 +218,37 @@ export default function AdminPage() {
     </section>
   );
 
-  const editUser = async (item) => {
-    const fullName = prompt("Họ tên", item.fullName || "");
-    if (fullName === null) return;
-    const phone = prompt("Số điện thoại", item.phone || "");
-    if (phone === null) return;
-    await updateAdminUser(item.id, { fullName, phone });
-    refresh();
-  };
 
   const renderAuth = () => (
     <>
       <section className="admin-panel">
-        <h2>Nhật ký đăng nhập</h2>
-        <Table headers={["Người dùng", "Email", "IP", "Thiết bị", "Trạng thái", "Thời gian"]}>
-          {(data.loginLogs || []).map((item) => (
+        <h2>Quan ly OTP va JWT</h2>
+        <Table headers={["Loai", "Thong tin", "Trang thai", "Chuc nang"]}>
+          {(data.otpList || []).map((item) => (
+            <tr key={item._id}>
+              <td>OTP</td>
+              <td>{item.email}</td>
+              <td>Het han: {formatDate(item.expiresAt)}</td>
+              <td>-</td>
+            </tr>
+          ))}
+          {(data.tokenUsers || []).map((item) => (
+            <tr key={item.id}>
+              <td>JWT</td>
+              <td>{item.email}</td>
+              <td><Badge type="ok">Dang hoat dong</Badge></td>
+              <td><button className="admin-btn warn" onClick={async () => { await revokeAdminSession(item.id); refresh(); }}>Thu hoi phien</button></td>
+            </tr>
+          ))}
+        </Table>
+      </section>
+      <section className="admin-panel">
+        <h2>Nhat ky dang nhap</h2>
+        <p className="admin-muted admin-panel-note">
+          Dang hien thi {Math.min(loginLimit, data.loginLogs?.length || 0)} / {data.loginLogs?.length || 0} phien dang nhap gan nhat.
+        </p>
+        <Table headers={["Nguoi dung", "Email", "IP", "Thiet bi", "Trang thai", "Thoi gian"]} scroll>
+          {(data.loginLogs || []).slice(0, loginLimit).map((item) => (
             <tr key={item._id}>
               <td>{userName(item.userId)}</td>
               <td>{item.email}</td>
@@ -191,47 +259,17 @@ export default function AdminPage() {
             </tr>
           ))}
         </Table>
-      </section>
-      <section className="admin-panel">
-        <h2>Quản lý OTP và JWT</h2>
-        <Table headers={["Loại", "Thông tin", "Trạng thái", "Chức năng"]}>
-          {(data.otpList || []).map((item) => (
-            <tr key={item._id}>
-              <td>OTP</td>
-              <td>{item.email}</td>
-              <td>Hết hạn: {formatDate(item.expiresAt)}</td>
-              <td>-</td>
-            </tr>
-          ))}
-          {(data.tokenUsers || []).map((item) => (
-            <tr key={item.id}>
-              <td>JWT</td>
-              <td>{item.email}</td>
-              <td><Badge type="ok">Đang hoạt động</Badge></td>
-              <td><button className="admin-btn warn" onClick={async () => { await revokeAdminSession(item.id); refresh(); }}>Thu hồi phiên</button></td>
-            </tr>
-          ))}
-        </Table>
+        {loginLimit < (data.loginLogs?.length || 0) && (
+          <div className="admin-load-more">
+            <button className="admin-btn primary" onClick={() => setLoginLimit((current) => current + 50)}>
+              Xem them
+            </button>
+          </div>
+        )}
       </section>
     </>
   );
 
-  const renderFriends = () => (
-    <section className="admin-panel">
-      <h2>Quản lý bạn bè</h2>
-      <Table headers={["Người gửi", "Người nhận", "Trạng thái", "Cập nhật", "Chức năng"]}>
-        {asArray(data).map((item) => (
-          <tr key={item._id}>
-            <td>{userName(item.userId)}</td>
-            <td>{userName(item.friendId)}</td>
-            <td><Badge type={item.status === "accepted" ? "ok" : "warn"}>{statusText[item.status] || item.status}</Badge></td>
-            <td>{formatDate(item.updatedAt)}</td>
-            <td><button className="admin-btn danger" onClick={async () => { await deleteAdminFriend(item._id); refresh(); }}>Xóa / Hủy kết bạn</button></td>
-          </tr>
-        ))}
-      </Table>
-    </section>
-  );
 
   const renderMessages = () => (
     <>
@@ -286,9 +324,62 @@ export default function AdminPage() {
     setSelected(res.data);
   };
 
+  const loadGroupsByMessageActivity = async (messageActivity) => {
+    setGroupMessageFilter(messageActivity);
+    setLoading(true);
+    setError("");
+    try {
+      setData((await getAdminGroups(messageActivity)).data);
+    } catch (err) {
+      setError(err.response?.data?.message || err.message || "Khong tai duoc du lieu admin");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLockGroup = async (id) => {
+    const reason = requireReason("Lý do khóa nhóm chat");
+    if (!reason) return;
+
+    await lockAdminGroup(id, reason);
+    refresh();
+  };
+
+  const handleUnlockGroup = async (id) => {
+    await unlockAdminGroup(id);
+    refresh();
+  };
+
+  const handleDissolveGroup = async (id) => {
+    const reason = requireReason("Lý do giải tán nhóm chat");
+    if (!reason) return;
+    if (!confirm("Giải tán nhóm chat này?")) return;
+
+    await dissolveAdminGroup(id, reason);
+    refresh();
+  };
+
+  const handleDeleteGroup = async (id) => {
+    const reason = requireReason("Lý do xóa nhóm chat");
+    if (!reason) return;
+    if (!confirm("Xóa vĩnh viễn nhóm chat và toàn bộ tin nhắn của nhóm?")) return;
+
+    await deleteAdminGroup(id, reason);
+    refresh();
+  };
+
   const renderGroups = () => (
     <section className="admin-panel">
       <h2>Quản lý nhóm chat</h2>
+      <div className="admin-toolbar admin-group-toolbar">
+        <button className={`admin-btn ${groupMessageFilter === "active" ? "primary" : ""}`} onClick={() => loadGroupsByMessageActivity("active")}>
+          Nhom co tin nhan trong 30 ngay
+        </button>
+        <button className={`admin-btn ${groupMessageFilter === "inactive" ? "primary" : ""}`} onClick={() => loadGroupsByMessageActivity("inactive")}>
+          Nhom khong co tin nhan moi 30 ngay
+        </button>
+        <button className="admin-btn" onClick={() => loadGroupsByMessageActivity("")}>Xoa loc</button>
+      </div>
       <Table headers={["Tên nhóm", "Chủ nhóm", "Thành viên", "Trạng thái", "Chức năng"]}>
         {asArray(data).map((item) => (
           <tr key={item._id}>
@@ -298,8 +389,13 @@ export default function AdminPage() {
             <td><Badge type={item.isActive === false ? "danger" : "ok"}>{item.isActive === false ? "Đã khóa" : "Đang hoạt động"}</Badge></td>
             <td className="admin-actions">
               <button className="admin-btn" onClick={() => viewGroup(item._id)}>Chi tiết</button>
-              <button className="admin-btn warn" onClick={async () => { await lockAdminGroup(item._id, prompt("Lý do khóa") || "Khóa bởi admin"); refresh(); }}>Khóa</button>
-              <button className="admin-btn danger" onClick={async () => { if (confirm("Giải tán / xóa nhóm?")) { await deleteAdminGroup(item._id); refresh(); } }}>Giải tán</button>
+              {item.isActive === false ? (
+                <button className="admin-btn primary" onClick={() => handleUnlockGroup(item._id)}>Mở khóa</button>
+              ) : (
+                <button className="admin-btn warn" onClick={() => handleLockGroup(item._id)}>Khóa</button>
+              )}
+              <button className="admin-btn danger" onClick={() => handleDissolveGroup(item._id)}>Giải tán</button>
+              <button className="admin-btn danger" onClick={() => handleDeleteGroup(item._id)}>Xóa</button>
             </td>
           </tr>
         ))}
@@ -313,9 +409,8 @@ export default function AdminPage() {
     return (
       <>
         <div className="admin-grid admin-cards">
-          <div className="admin-card"><div className="admin-label">DAU</div><div className="admin-number">{stats.dau || 0}</div></div>
-          <div className="admin-card"><div className="admin-label">MAU</div><div className="admin-number">{stats.mau || 0}</div></div>
-          <div className="admin-card"><div className="admin-label">Báo cáo vi phạm</div><div className="admin-number">{data.reports?.reports?.length || 0}</div></div>
+          <div className="admin-card"><div className="admin-label">Người dùng hoạt động trong ngày</div><div className="admin-number">{stats.dau || 0}</div></div>
+          <div className="admin-card"><div className="admin-label">Người dùng hoạt động trong tháng</div><div className="admin-number">{stats.mau || 0}</div></div>
         </div>
         <div className="admin-grid admin-two">
           <section className="admin-panel"><h2>Tăng trưởng người dùng</h2><Chart data={stats.userGrowth} xLabel="Ngày đăng ký" yLabel="Số người dùng" /></section>
@@ -365,10 +460,9 @@ export default function AdminPage() {
           {tab === "dashboard" && renderDashboard()}
           {tab === "users" && renderUsers()}
           {tab === "auth" && renderAuth()}
-          {tab === "friends" && renderFriends()}
           {tab === "messages" && renderMessages()}
           {tab === "groups" && renderGroups()}
-          {tab === "reports" && renderReports()}
+          {tab === "statistics" && renderReports()}
         </div>
       </main>
     </div>
