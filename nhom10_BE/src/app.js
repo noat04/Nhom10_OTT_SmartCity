@@ -9,6 +9,7 @@ const { verifyToken } = require('./middlewares/auth.middleware');
 // Routes
 const authRoutes = require('./routes/auth.route');
 const chatRoutes = require('./routes/chat.route');
+const notificationRoutes = require('./routes/notification.route');
 const userRoutes = require('./routes/user.route');
 const friendRoutes = require('./routes/friend.route');
 const uploadRoutes = require('./routes/upload.route');
@@ -57,6 +58,7 @@ app.use('/api/chat', verifyToken, chatRoutes);
 app.use('/api/users', verifyToken, userRoutes);
 app.use('/api/friend', verifyToken, friendRoutes);
 app.use('/api/upload', verifyToken, uploadRoutes);
+app.use('/api/notifications', verifyToken, notificationRoutes);
 app.use('/api/ai', verifyToken, aiRoutes);
 app.use('/api/admin', adminRoutes);
 // Test auth
